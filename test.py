@@ -32,22 +32,22 @@ lock = threading.Lock()
 
 
 
-# ticker_symbol = "NVDA"
-# ticker = yf.Ticker(ticker_symbol)
+ticker_symbol = "NVDA"
+ticker = yf.Ticker(ticker_symbol)
 
-# info = ticker.info
-# print(info)
+info = ticker.info
+print(info)
 
-# fast_info = ticker.fast_info
-# print(fast_info)
-# curr_price = fast_info.last_price
-# curr_volume = fast_info.last_volume
-# print(f"Current Price for {ticker_symbol}: {curr_price}")
-# print(f"Current Volume for {ticker_symbol}: {curr_volume}")
-# print('\n\n\n\n')
+fast_info = ticker.fast_info
+print(fast_info)
+curr_price = fast_info.last_price
+curr_volume = fast_info.last_volume
+print(f"Current Price for {ticker_symbol}: {curr_price}")
+print(f"Current Volume for {ticker_symbol}: {curr_volume}")
+print('\n\n\n\n')
 
-# for key in fast_info:
-#     print(f'{key}:\t{fast_info[key]}')
+for key in fast_info:
+    print(f'{key}:\t{fast_info[key]}')
 
 
 
@@ -200,23 +200,3 @@ if __name__ == "__main__":
         ws.subscribe(stock_symbols)
         ws.listen(handler)
 
-
-
-'''
-from datetime import datetime
-
-while True:
-    now = datetime.now()
-    current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    print(current_time_str)
-
-    for stock_symbol in stock_symbols: 
-        ticker = yf.Ticker(stock_symbol)
-        price = str(ticker.info['regularMarketPrice'])
-        print(f'{stock_symbol}:\t{price}')
-
-    # tickers = yf.Tickers(' '.join(stock_symbols))
-
-    print('\n\n')
-    time.sleep(5)
-'''
