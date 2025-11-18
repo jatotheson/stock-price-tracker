@@ -4,7 +4,7 @@ terraform {
     backend "s3" {
         bucket         = "stock-tracker-bootstrap-tf-state-b38de212"
         key            = "global/terraform.tfstate"
-        region         = var.aws_region
+        region         = "us-east-1"
         dynamodb_table = "stock-tracker-bootstrap-tf-lock"
     }
 
