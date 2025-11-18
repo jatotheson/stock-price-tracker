@@ -14,8 +14,16 @@ variable "env" {
     default = "dev"
 }
 
-	
-# s3 bucket name: stock-tracker-bootstrap-tf-state-b38de212
-# dynamodb table name: stock-tracker-bootstrap-tf-lock
+
+variable "notify_email" {
+    type    = string
+    default = "jason6858@gmail.com"
+}
+
+variable "notify_phone" {
+    type    = string
+    default = "+19094558257"
+}
+
 
 
