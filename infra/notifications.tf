@@ -13,30 +13,16 @@ resource "aws_sns_topic" "worker_notifications" {
 
 
 ############################
-# Email subscription (optional)
+# Email subscription 
 ############################
 resource "aws_sns_topic_subscription" "worker_email" {
     topic_arn = aws_sns_topic.worker_notifications.arn
     protocol  = "email"
     endpoint  = var.notify_email
 
-    # Don't let Terraform accidentally delete this and spam you
+    # Don't let Terraform accidentally delete this and spam me
     lifecycle {
         prevent_destroy = true
     }
 }
 
-
-############################
-# SMS subscription (optional)
-############################
-resource "aws_sns_topic_subscription" "worker_sms" {
-    topic_arn = aws_sns_topic.worker_notifications.arn
-    protocol  = "sms"
-    endpoint  = var.notify_phone
-
-    # Don't let Terraform accidentally delete this and spam you
-    lifecycle {
-        prevent_destroy = true
-    }
-}
