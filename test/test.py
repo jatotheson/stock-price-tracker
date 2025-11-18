@@ -5,7 +5,15 @@ import yfinance as yf
 import threading
 import json
 import csv
+import pandas as pd
 
+
+
+df = pd.read_parquet("test/stocks-192844.parquet")
+print(df.head())
+print(df.columns)
+
+'''
 
 VERBOSE_PRICE_LOGS = False
 OUTPUT_FILE = "sample.csv"
@@ -25,7 +33,7 @@ stock_symbols = [
     "AVGO"
 ]
 
-# latest data we’ve seen from the socket for each symbol
+# latest data we've seen from the socket for each symbol
 latest_messages = {}
 fundamentals_cache = {}
 lock = threading.Lock()
@@ -200,3 +208,5 @@ if __name__ == "__main__":
         ws.subscribe(stock_symbols)
         ws.listen(handler)
 
+
+'''
