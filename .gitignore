@@ -205,3 +205,35 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+
+
+*.csv
+
+# Terraform directories
+**/.terraform*
+
+# Terraform state files (may contain sensitive data)
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude all .tfvars files, which likely contain sensitive data
+# such as passwords, private keys, and other secrets.
+*.tfvars
+*.tfvars.json
+
+# Ignore override files as they are usually used for local changes
+# and are not intended for version control
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
