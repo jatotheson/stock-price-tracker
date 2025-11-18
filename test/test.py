@@ -9,7 +9,7 @@ import pandas as pd
 
 
 
-df = pd.read_parquet("test/stocks-192844.parquet")
+df = pd.read_parquet("test/stocks-194207.parquet")
 print(df.head())
 print(df.columns)
 
