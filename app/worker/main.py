@@ -139,7 +139,7 @@ def flush_buffer(buffer: list[dict]) -> None:
     df = pd.DataFrame(buffer)
 
     now = datetime.now(timezone.utc)
-    date_str = now.strftime("%Y-%m-%d")
+    date_str = now.strftime("%Y/%m/%d")
     time_str = now.strftime("%H%M%S")
 
     key = f"day={date_str}/stocks-{time_str}.parquet"
