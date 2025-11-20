@@ -9,7 +9,7 @@ import yfinance as yf
 
 
 S3_BUCKET = os.environ["S3_BUCKET"]
-STOCK_LIST = os.environ["STOCK_LIST"].split(",")
+STOCK_LIST = [s.strip() for s in os.environ["STOCK_LIST"].split(",") if s.strip()]
 EASTERN_TZ = ZoneInfo("America/New_York")
 
 s3 = boto3.client("s3")
@@ -139,10 +139,11 @@ def flush_buffer(buffer: list[dict]) -> None:
         return
 
     df = pd.DataFrame(buffer)
+    log(f"Flushing {len(buffer)} rows with columns: {list(df.columns)}")
 
     now = datetime.now(EASTERN_TZ)
-    date_str = now.strftime("%Y/%b/%d")
-    time_str = now.strftime("%I:%M:%S %p")
+    date_str = now.strftime("year=%Y/month=%m/day=%d")
+    time_str = now.strftime("%H-%M-%S")
 
     key = f"{date_str}/stocks-{time_str}.parquet"
 
@@ -164,19 +165,24 @@ def main() -> None:
     buffer: list[dict] = []
     last_flush = time.time()
     flush_interval_seconds = 60
-    poll_interval_seconds = 1
+    poll_interval_seconds = 3
 
     while True:
-        rows = fetch_prices()
-        buffer.extend(rows)
+        try:
+            rows = fetch_prices()
+            buffer.extend(rows)
 
-        now = time.time()
-        if now - last_flush >= flush_interval_seconds - 1:
-            flush_buffer(buffer)
-            buffer.clear()
-            last_flush = now
-
-        time.sleep(poll_interval_seconds)
+            now = time.time()
+            if now - last_flush >= flush_interval_seconds:
+                flush_buffer(buffer)
+                buffer.clear()
+                last_flush = now
+        except Exception as e:
+            log(f"Top-level error in main loop: {e}")
+            # small backoff so we don't spin-crash
+            time.sleep(poll_interval_seconds)
+        finally:
+            time.sleep(poll_interval_seconds)
 
 
 if __name__ == "__main__":
