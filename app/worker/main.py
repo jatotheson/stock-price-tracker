@@ -1,6 +1,7 @@
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import boto3
 import pandas as pd
@@ -9,6 +10,7 @@ import yfinance as yf
 
 S3_BUCKET = os.environ["S3_BUCKET"]
 STOCK_LIST = os.environ["STOCK_LIST"].split(",")
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 s3 = boto3.client("s3")
 
@@ -17,7 +19,7 @@ TICKERS = {symbol: yf.Ticker(symbol) for symbol in STOCK_LIST}
 
 
 def log(msg: str) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(EASTERN_TZ).isoformat()
     print(f"[{now}] {msg}", flush=True)
 
 
@@ -62,7 +64,7 @@ def fetch_prices() -> list[dict]:
     Adds extra fields: volume, open, high, low, previous_close, exchange, currency.
     """
     rows: list[dict] = []
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(EASTERN_TZ).isoformat()
 
     for symbol, ticker in TICKERS.items():
         try:
@@ -138,14 +140,18 @@ def flush_buffer(buffer: list[dict]) -> None:
 
     df = pd.DataFrame(buffer)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(EASTERN_TZ)
     date_str = now.strftime("%Y/%b/%d")
-    time_str = now.strftime("%H%M%S")
+    time_str = now.strftime("%I:%M:%S %p")
 
     key = f"{date_str}/stocks-{time_str}.parquet"
 
     tmp_path = "/tmp/data.parquet"
-    df.to_parquet(tmp_path)
+    df.to_parquet(
+        tmp_path,
+        compression="snappy",
+        index=False
+    )
     s3.upload_file(tmp_path, S3_BUCKET, key)
 
     log(f"Flushed {len(buffer)} records to s3://{S3_BUCKET}/{key}")
@@ -157,7 +163,7 @@ def main() -> None:
 
     buffer: list[dict] = []
     last_flush = time.time()
-    flush_interval_seconds = 10
+    flush_interval_seconds = 60
     poll_interval_seconds = 1
 
     while True:
@@ -165,7 +171,7 @@ def main() -> None:
         buffer.extend(rows)
 
         now = time.time()
-        if now - last_flush >= flush_interval_seconds:
+        if now - last_flush >= flush_interval_seconds - 1:
             flush_buffer(buffer)
             buffer.clear()
             last_flush = now
