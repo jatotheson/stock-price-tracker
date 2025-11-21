@@ -100,8 +100,8 @@ resource "aws_lambda_function" "read_prices" {
 
     handler = "handler.handler"
     runtime = "python3.11"
-    timeout = 30
-    memory_size = 512
+    timeout = 60
+    memory_size = 1024
 
     environment {
         variables = {
