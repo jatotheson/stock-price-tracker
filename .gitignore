@@ -243,5 +243,5 @@ terraform.rc
 
 *.csv
 /tmp/*
-
+.DS_Store
 

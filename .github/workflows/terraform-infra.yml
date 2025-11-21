@@ -5,7 +5,8 @@ on:
     branches: [ main ]
     paths:
       - 'infra/**'
-  workflow_dispatch: {}   # allow manual runs too
+      - '.github/workflows/terraform-infra.yml'
+  workflow_dispatch: {}
 
 jobs:
   terraform:
@@ -15,7 +16,7 @@ jobs:
       AWS_REGION: us-east-1
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -25,20 +26,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
+      - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.8 # or whatever you're using
+          terraform_version: 1.14.0
 
       - name: Terraform Init
         working-directory: infra
         run: terraform init -input=false
 
+      # - name: Terraform Format Check
+      #   working-directory: infra
+      #   run: terraform fmt -check
+
+      # - name: Terraform Validate
+      #   working-directory: infra
+      #   run: terraform validate -no-color
+
       - name: Terraform Plan
         working-directory: infra
-        run: terraform plan -input=false
+        run: terraform plan -no-color -input=false
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
         working-directory: infra
-        run: terraform apply -input=false -auto-approve
+        run: terraform apply -no-color -input=false -auto-approve
