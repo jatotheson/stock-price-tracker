@@ -19,6 +19,20 @@ variable "notify_email" {
     default = "jason6858@gmail.com"
 }
 
-
+variable "stock_symbols" {
+    type = list(string)
+    default = [
+        "AAPL",
+        "NVDA",
+        "TSLA",
+        "NFLX",
+        "META",
+        "MSFT",
+        "GOOG",
+        "AMZN",
+        "ORCL",
+        "AVGO"
+    ]
+}
 
 

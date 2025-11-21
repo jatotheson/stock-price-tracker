@@ -134,22 +134,6 @@ resource "aws_ecs_cluster" "this" {
 # ECS Task Definition (Fargate)
 ############################
 
-
-locals {
-    stock_symbols = [
-        "AAPL",
-        "NVDA",
-        "TSLA",
-        "NFLX",
-        "META",
-        "MSFT",
-        "GOOG",
-        "AMZN",
-        "ORCL",
-        "AVGO"
-    ]
-}
-
 resource "aws_ecs_task_definition" "worker" {
     family                         = "${var.project_name}-worker-${var.env}"
     cpu                            = "256"
@@ -176,7 +160,7 @@ resource "aws_ecs_task_definition" "worker" {
                 },
                 {
                     name  = "STOCK_LIST"
-                    value = join(",", local.stock_symbols)
+                    value = join(",", var.stock_symbols)
                 }
             ]
             logConfiguration = {
