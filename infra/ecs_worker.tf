@@ -31,7 +31,7 @@ data "aws_iam_policy_document" "ecs_task_assume" {
 }
 
 resource "aws_iam_role" "ecs_task_role" {
-    name                     = "${var.project_name}-ecs-task-role-${var.env}"
+    name                 = "${var.project_name}-ecs-task-role-${var.env}"
     assume_role_policy   = data.aws_iam_policy_document.ecs_task_assume.json
 
     tags = {
@@ -69,6 +69,31 @@ resource "aws_iam_role_policy" "ecs_task_s3_policy" {
         ]
     })
 }
+
+
+############################
+# DynamoDB permissions for ECS task
+############################
+
+resource "aws_iam_role_policy" "ecs_task_ddb_policy" {
+    name = "${var.project_name}-ecs-task-ddb-policy-${var.env}"
+    role = aws_iam_role.ecs_task_role.id
+
+    policy = jsonencode({
+        Version = "2012-10-17"
+        Statement = [
+            {
+                Effect = "Allow"
+                Action = [
+                    "dynamodb:PutItem",
+                    "dynamodb:DescribeTable"
+                ]
+                Resource = aws_dynamodb_table.intraday.arn
+            }
+        ]
+    })
+}
+
 
 ############################
 # CloudWatch Logs
@@ -161,6 +186,14 @@ resource "aws_ecs_task_definition" "worker" {
                 {
                     name  = "STOCK_LIST"
                     value = join(",", var.stock_symbols)
+                },
+                {
+                    name  = "DDB_INTRADAY_TABLE"
+                    value = aws_dynamodb_table.intraday.name
+                },
+                {
+                    name  = "INTRADAY_TTL_DAYS"
+                    value = "60"
                 }
             ]
             logConfiguration = {

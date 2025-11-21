@@ -1,6 +1,7 @@
 import os
 import time
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import boto3
@@ -12,7 +13,13 @@ S3_BUCKET = os.environ["S3_BUCKET"]
 STOCK_LIST = [s.strip() for s in os.environ["STOCK_LIST"].split(",") if s.strip()]
 EASTERN_TZ = ZoneInfo("America/New_York")
 
+# Optional: hot store in DynamoDB
+DDB_INTRADAY_TABLE = os.environ.get("DDB_INTRADAY_TABLE")
+INTRADAY_TTL_DAYS = int(os.environ.get("INTRADAY_TTL_DAYS", "60"))
+
 s3 = boto3.client("s3")
+dynamodb = boto3.resource("dynamodb") if DDB_INTRADAY_TABLE else None
+intraday_table = dynamodb.Table(DDB_INTRADAY_TABLE) if dynamodb else None
 
 # Reuse Ticker objects
 TICKERS = {symbol: yf.Ticker(symbol) for symbol in STOCK_LIST}
@@ -134,6 +141,86 @@ def fetch_prices() -> list[dict]:
     return rows
 
 
+############################
+# DynamoDB minute aggregation
+############################
+
+@dataclass
+class MinuteState:
+    minute_start: datetime  # tz-aware (America/New_York)
+    last_price: float
+
+
+# One state per symbol
+MINUTE_STATE: dict[str, MinuteState] = {}
+
+
+def floor_to_minute(dt: datetime) -> datetime:
+    return dt.replace(second=0, microsecond=0)
+
+
+def write_minute_to_dynamodb(symbol: str, state: MinuteState) -> None:
+    if intraday_table is None:
+        return
+
+    # minute_start is Eastern; timestamp() gives epoch seconds (UTC-based)
+    ts_epoch = int(state.minute_start.timestamp())
+    ttl_epoch = int((state.minute_start + timedelta(days=INTRADAY_TTL_DAYS)).timestamp())
+
+    item = {
+        "symbol": symbol,
+        "ts": ts_epoch,
+        "price": state.last_price,
+        "ttl": ttl_epoch,
+    }
+
+    try:
+        intraday_table.put_item(Item=item)
+        log(f"DDB minute write: {item}")
+    except Exception as e:
+        log(f"Error writing to DynamoDB for {symbol}: {e}")
+
+
+def update_intraday_cache(rows: list[dict]) -> None:
+    """
+    Update per-symbol minute state and flush previous minute to DynamoDB
+    when we cross minute boundary.
+    We store exactly one row per minute per symbol, using the last price
+    observed in that minute.
+    """
+    for row in rows:
+        symbol = row["symbol"]
+        price = row["price"]
+        ts_str = row["timestamp"]
+        ts = datetime.fromisoformat(ts_str)  # already Eastern
+
+        minute_start = floor_to_minute(ts)
+
+        state = MINUTE_STATE.get(symbol)
+
+        if state is None:
+            # First time we see this symbol
+            MINUTE_STATE[symbol] = MinuteState(
+                minute_start=minute_start,
+                last_price=price,
+            )
+        else:
+            if minute_start == state.minute_start:
+                # Still within the same minute: update last_price
+                state.last_price = price
+            else:
+                # Minute changed: flush previous minute, start new one
+                write_minute_to_dynamodb(symbol, state)
+                MINUTE_STATE[symbol] = MinuteState(
+                    minute_start=minute_start,
+                    last_price=price,
+                )
+
+
+############################
+# S3 flush (unchanged)
+############################
+
 def flush_buffer(buffer: list[dict]) -> None:
     if not buffer:
         return
@@ -151,7 +238,7 @@ def flush_buffer(buffer: list[dict]) -> None:
     df.to_parquet(
         tmp_path,
         compression="snappy",
-        index=False
+        index=False,
     )
     s3.upload_file(tmp_path, S3_BUCKET, key)
 
@@ -159,7 +246,8 @@ def flush_buffer(buffer: list[dict]) -> None:
 
 
 def main() -> None:
-    log(f"Starting worker. Bucket={S3_BUCKET}, Stocks={STOCK_LIST}")
+    log(f"Starting worker. Bucket={S3_BUCKET}, Stocks={STOCK_LIST}, "
+        f"DDB_INTRADAY_TABLE={DDB_INTRADAY_TABLE}")
     log(f"Loaded metadata: {METADATA}")
 
     buffer: list[dict] = []
@@ -172,6 +260,9 @@ def main() -> None:
             rows = fetch_prices()
             buffer.extend(rows)
 
+            # Update DynamoDB minute cache
+            update_intraday_cache(rows)
+
             now = time.time()
             if now - last_flush >= flush_interval_seconds:
                 flush_buffer(buffer)
@@ -179,7 +270,6 @@ def main() -> None:
                 last_flush = now
         except Exception as e:
             log(f"Top-level error in main loop: {e}")
-            # small backoff so we don't spin-crash
             time.sleep(poll_interval_seconds)
         finally:
             time.sleep(poll_interval_seconds)

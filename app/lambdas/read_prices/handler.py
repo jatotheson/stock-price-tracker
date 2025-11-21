@@ -4,13 +4,15 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import boto3
-import pandas as pd
+from boto3.dynamodb.conditions import Key
 
 
-s3 = boto3.client("s3")
-
-S3_BUCKET = os.environ["S3_BUCKET"]
 EASTERN_TZ = ZoneInfo("America/New_York")
+
+DDB_INTRADAY_TABLE = os.environ["DDB_INTRADAY_TABLE"]
+
+dynamodb = boto3.resource("dynamodb")
+table = dynamodb.Table(DDB_INTRADAY_TABLE)
 
 
 def log(msg: str) -> None:
@@ -20,108 +22,98 @@ def log(msg: str) -> None:
 
 def parse_range(range_str: str):
     """
-    Map range string to (start_dt, end_dt, pandas_freq).
-    All in America/New_York time.
+    Map range string to (start_dt, end_dt, bucket_seconds) in Eastern time.
+    bucket_seconds controls how we aggregate points for 1W / 1M.
     """
     now = datetime.now(EASTERN_TZ)
 
     if range_str == "1D":
         start = now - timedelta(days=1)
-        freq = "1T"   # 1 minute
+        bucket_seconds = 60          # 1 minute
     elif range_str == "1W":
         start = now - timedelta(days=7)
-        freq = "30T"  # 30 minutes
+        bucket_seconds = 30 * 60     # 30 minutes
     elif range_str == "1M":
         start = now - timedelta(days=30)
-        freq = "1H"   # 1 hour
+        bucket_seconds = 60 * 60     # 1 hour
     else:
         raise ValueError("Unsupported range")
 
-    return start, now, freq
+    log(f"parse_range: range={range_str}, start={start}, end={now}, bucket_seconds={bucket_seconds}")
+    return start, now, bucket_seconds
 
 
-def list_keys_for_window(start_dt: datetime, end_dt: datetime):
+def query_dynamodb(symbol: str, start_dt: datetime, end_dt: datetime):
     """
-    Given a time window, return the S3 object keys to read, based on
-    your partition scheme: year=YYYY/month=MM/day=DD/stocks-...parquet
+    Query DynamoDB for all minute points for (symbol, ts between start/end).
     """
-    keys: list[str] = []
-    # Start at midnight of the start day
-    current = datetime(
-        year=start_dt.year,
-        month=start_dt.month,
-        day=start_dt.day,
-        tzinfo=start_dt.tzinfo,
-    )
+    start_ts = int(start_dt.timestamp())
+    end_ts = int(end_dt.timestamp())
 
-    while current <= end_dt:
-        prefix = current.strftime("year=%Y/month=%m/day=%d/")
-        resp = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
-        for obj in resp.get("Contents", []):
-            if obj["Key"].endswith(".parquet"):
-                keys.append(obj["Key"])
-        current += timedelta(days=1)
+    log(f"query_dynamodb: symbol={symbol}, start_ts={start_ts}, end_ts={end_ts}")
 
-    return keys
+    items = []
+    exclusive_start_key = None
+
+    while True:
+        if exclusive_start_key:
+            resp = table.query(
+                KeyConditionExpression=Key("symbol").eq(symbol) & Key("ts").between(start_ts, end_ts),
+                ExclusiveStartKey=exclusive_start_key,
+                ScanIndexForward=True,
+            )
+        else:
+            resp = table.query(
+                KeyConditionExpression=Key("symbol").eq(symbol) & Key("ts").between(start_ts, end_ts),
+                ScanIndexForward=True,
+            )
+
+        batch = resp.get("Items", [])
+        items.extend(batch)
+
+        exclusive_start_key = resp.get("LastEvaluatedKey")
+        if not exclusive_start_key:
+            break
+
+    log(f"query_dynamodb: got {len(items)} items for symbol={symbol}")
+    return items
 
 
-def load_data(symbol: str, start_dt: datetime, end_dt: datetime) -> pd.DataFrame:
+def build_points(items, bucket_seconds: int):
     """
-    Load Parquet files for the window, filter by symbol + time range.
+    Convert raw minute items into aggregated points.
+    For 1D: bucket_seconds = 60 (1 minute) -> essentially one point per minute.
+    For 1W: bucket_seconds = 1800 (30 min).
+    For 1M: bucket_seconds = 3600 (1 hour).
+    We use the last price seen in each bucket.
     """
-    keys = list_keys_for_window(start_dt, end_dt)
-    log(f"Found {len(keys)} parquet files for window {start_dt} to {end_dt}")
-
-    if not keys:
-        return pd.DataFrame()
-
-    frames = []
-    for key in keys:
-        try:
-            tmp_path = f"/tmp/{key.replace('/', '_')}"
-            s3.download_file(S3_BUCKET, key, tmp_path)
-            df = pd.read_parquet(tmp_path)
-
-            # Filter by symbol early
-            df = df[df["symbol"] == symbol]
-            if df.empty:
-                continue
-
-            # Ensure timestamp is datetime with tz
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            frames.append(df)
-        except Exception as e:
-            log(f"Error reading {key}: {e}")
-
-    if not frames:
-        return pd.DataFrame()
-
-    data = pd.concat(frames, ignore_index=True)
-
-    # Filter by time window
-    mask = (data["timestamp"] >= start_dt) & (data["timestamp"] <= end_dt)
-    data = data.loc[mask]
-
-    # Sort by time
-    data = data.sort_values("timestamp")
-
-    return data
-
-
-def build_timeseries(data: pd.DataFrame, freq: str):
-    """
-    Resample to the given frequency, taking the last price in each bucket.
-    Returns a list of { t, price } points.
-    """
-    if data.empty:
+    if not items:
+        log("build_points: no items, returning empty list")
         return []
 
-    data = data.set_index("timestamp")
-    resampled = data["price"].resample(freq).last().dropna()
+    # Sort by ts ascending
+    items = sorted(items, key=lambda x: x["ts"])
+
+    buckets = {}
+
+    for item in items:
+        ts = int(item["ts"])
+        price = float(item.get("price") or item.get("close"))
+
+        # Align timestamp to bucket boundary (e.g. minute, 30-min, hour)
+        bucket_start_ts = ts - (ts % bucket_seconds)
+
+        # Since items are sorted ascending, later writes overwrite earlier => last price wins
+        buckets[bucket_start_ts] = price
+
+    log(f"build_points: {len(items)} raw items -> {len(buckets)} buckets")
 
     points = [
-        {"t": ts.isoformat(), "price": float(price)}
-        for ts, price in resampled.items()
+        {
+            "t": datetime.fromtimestamp(bucket_ts, EASTERN_TZ).isoformat(),
+            "price": price,
+        }
+        for bucket_ts, price in sorted(buckets.items())
     ]
 
     return points
@@ -135,21 +127,24 @@ def handler(event, context):
     range_str = qs.get("range", "1D")
 
     if not symbol:
+        log("handler: missing symbol parameter")
         return {
             "statusCode": 400,
             "body": json.dumps({"error": "symbol is required"}),
         }
 
     try:
-        start_dt, end_dt, freq = parse_range(range_str)
+        start_dt, end_dt, bucket_seconds = parse_range(range_str)
     except ValueError:
+        log(f"handler: invalid range={range_str}")
         return {
             "statusCode": 400,
             "body": json.dumps({"error": "range must be one of 1D, 1W, 1M"}),
         }
 
-    data = load_data(symbol, start_dt, end_dt)
-    points = build_timeseries(data, freq)
+    items = query_dynamodb(symbol, start_dt, end_dt)
+    points = build_points(items, bucket_seconds)
+    log(f"handler: returning {len(points)} points for symbol={symbol}, range={range_str}")
 
     return {
         "statusCode": 200,
@@ -162,6 +157,6 @@ def handler(event, context):
         ),
         "headers": {
             "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",  # allow website
+            "Access-Control-Allow-Origin": "*",
         },
     }

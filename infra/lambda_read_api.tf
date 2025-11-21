@@ -53,17 +53,14 @@ resource "aws_iam_role_policy" "lambda_read_policy" {
                 ]
                 Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
             },
-            # Read access to stock data bucket
+            # DynamoDB read access
             {
                 Effect = "Allow"
                 Action = [
-                    "s3:GetObject",
-                    "s3:ListBucket"
+                    "dynamodb:Query",
+                    "dynamodb:DescribeTable"
                 ]
-                Resource = [
-                    aws_s3_bucket.stock_data.arn,
-                    "${aws_s3_bucket.stock_data.arn}/*"
-                ]
+                Resource = aws_dynamodb_table.intraday.arn
             }
         ]
     })
@@ -100,18 +97,14 @@ resource "aws_lambda_function" "read_prices" {
 
     handler = "handler.handler"
     runtime = "python3.11"
-    timeout = 60
-    memory_size = 1024
+    timeout = 5
+    memory_size = 256
 
     environment {
         variables = {
-            S3_BUCKET = aws_s3_bucket.stock_data.bucket
+            DDB_INTRADAY_TABLE = aws_dynamodb_table.intraday.name
         }
     }
-
-    layers = [
-        "arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python311:24"
-    ]
 
     tags = {
         Project = var.project_name
