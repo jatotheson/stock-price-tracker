@@ -126,7 +126,7 @@ resource "aws_lambda_function" "read_prices" {
 ############################
 
 resource "aws_apigatewayv2_integration" "read_prices" {
-    api_id           = aws_apigatewayv2_api.worker.id
+    api_id           = aws_apigatewayv2_api.worker_api.id
     integration_type = "AWS_PROXY"
     integration_uri  = aws_lambda_function.read_prices.arn
     integration_method = "POST"
@@ -137,7 +137,7 @@ resource "aws_apigatewayv2_integration" "read_prices" {
 
 # GET https://hunf064i32.execute-api.us-east-1.amazonaws.com/prices?symbol=AAPL&range=1D
 resource "aws_apigatewayv2_route" "read_prices" {
-    api_id    = aws_apigatewayv2_api.worker.id
+    api_id    = aws_apigatewayv2_api.worker_api.id
     route_key = "GET /prices"
 
     target = "integrations/${aws_apigatewayv2_integration.read_prices.id}"
@@ -150,5 +150,5 @@ resource "aws_lambda_permission" "apigw_invoke_read_prices" {
     action        = "lambda:InvokeFunction"
     function_name = aws_lambda_function.read_prices.arn
     principal     = "apigateway.amazonaws.com"
-    source_arn    = "${aws_apigatewayv2_api.worker.execution_arn}/*/*"
+    source_arn    = "${aws_apigatewayv2_api.worker_api.execution_arn}/*/*"
 }
