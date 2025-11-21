@@ -109,6 +109,10 @@ resource "aws_lambda_function" "read_prices" {
         }
     }
 
+    layers = [
+        "arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python311:24"
+    ]
+
     tags = {
         Project = var.project_name
         Env     = var.env
