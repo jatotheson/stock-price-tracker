@@ -1,5 +1,6 @@
 import os
 import time
+from decimal import Decimal
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -170,7 +171,7 @@ def write_minute_to_dynamodb(symbol: str, state: MinuteState) -> None:
     item = {
         "symbol": symbol,
         "ts": ts_epoch,
-        "price": state.last_price,
+        "price": Decimal(str(state.last_price)),
         "ttl": ttl_epoch,
     }
 
