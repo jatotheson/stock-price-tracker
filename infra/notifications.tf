@@ -16,7 +16,15 @@ data "aws_iam_policy_document" "worker_notifications_topic_policy" {
     sid = "AllowAccountTopicManagement"
 
     actions = [
-      "SNS:*"
+      "SNS:AddPermission",
+      "SNS:DeleteTopic",
+      "SNS:GetTopicAttributes",
+      "SNS:ListSubscriptionsByTopic",
+      "SNS:Publish",
+      "SNS:Receive",
+      "SNS:RemovePermission",
+      "SNS:SetTopicAttributes",
+      "SNS:Subscribe"
     ]
 
     principals {
