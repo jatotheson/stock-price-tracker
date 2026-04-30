@@ -3,42 +3,67 @@
 ############################
 
 data "aws_iam_policy_document" "scheduler_assume" {
-    statement {
-        actions = ["sts:AssumeRole"]
+  statement {
+    actions = ["sts:AssumeRole"]
 
-        principals {
-            type        = "Service"
-            identifiers = ["scheduler.amazonaws.com"]
-        }
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
     }
+  }
 }
 
 resource "aws_iam_role" "scheduler_role" {
-    name               = "${var.project_name}-scheduler-role-${var.env}"
-    assume_role_policy = data.aws_iam_policy_document.scheduler_assume.json
+  name               = "${var.project_name}-scheduler-role-${var.env}"
+  assume_role_policy = data.aws_iam_policy_document.scheduler_assume.json
 
-    tags = {
-        Project = var.project_name
-        Env     = var.env
-    }
+  tags = {
+    Project = var.project_name
+    Env     = var.env
+  }
 }
 
 resource "aws_iam_role_policy" "scheduler_invoke_lambda" {
-    name = "${var.project_name}-scheduler-invoke-lambda-${var.env}"
-    role = aws_iam_role.scheduler_role.id
+  name = "${var.project_name}-scheduler-invoke-lambda-${var.env}"
+  role = aws_iam_role.scheduler_role.id
 
-    policy = jsonencode({
-        Version = "2012-10-17"
-        Statement = [
-            {
-                Effect = "Allow"
-                Action = [
-                    "lambda:InvokeFunction"
-                ]
-                Resource = aws_lambda_function.worker_switch.arn
-            }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
         ]
-    })
+        Resource = aws_lambda_function.worker_switch.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "scheduler_run_ecs_task" {
+  name = "${var.project_name}-scheduler-run-ecs-task-${var.env}"
+  role = aws_iam_role.scheduler_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:RunTask"
+        ]
+        Resource = aws_ecs_task_definition.worker.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = aws_iam_role.ecs_task_role.arn
+      }
+    ]
+  })
 }
 
 
@@ -47,39 +72,83 @@ resource "aws_iam_role_policy" "scheduler_invoke_lambda" {
 ############################
 
 resource "aws_scheduler_schedule" "worker_on" {
-    name = "${var.project_name}-worker-on-${var.env}"
+  name = "${var.project_name}-worker-on-${var.env}"
 
-    flexible_time_window {
-        mode = "OFF"
-    }
+  flexible_time_window {
+    mode = "OFF"
+  }
 
-    schedule_expression_timezone = "America/New_York"
-    # 0 9 ? * MON-FRI *  => 09:00 Mon-Fri, US Eastern
-    schedule_expression = "cron(0 9 ? * MON-FRI *)"
+  schedule_expression_timezone = "America/New_York"
+  # 0 9 ? * MON-FRI *  => 09:00 Mon-Fri, US Eastern
+  schedule_expression = "cron(0 9 ? * MON-FRI *)"
+  state               = "DISABLED"
 
-    target {
-        arn      = aws_lambda_function.worker_switch.arn
-        role_arn = aws_iam_role.scheduler_role.arn
-        input    = jsonencode({ action = "on" })
-    }
+  target {
+    arn      = aws_lambda_function.worker_switch.arn
+    role_arn = aws_iam_role.scheduler_role.arn
+    input    = jsonencode({ action = "on" })
+  }
 }
 
 resource "aws_scheduler_schedule" "worker_off" {
-    name = "${var.project_name}-worker-off-${var.env}"
+  name = "${var.project_name}-worker-off-${var.env}"
 
-    flexible_time_window {
-        mode = "OFF"
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression_timezone = "America/New_York"
+  # 30 16 ? * MON-FRI *  => 16:30 Mon-Fri, US Eastern
+  schedule_expression = "cron(30 16 ? * MON-FRI *)"
+  state               = "DISABLED"
+
+  target {
+    arn      = aws_lambda_function.worker_switch.arn
+    role_arn = aws_iam_role.scheduler_role.arn
+    input    = jsonencode({ action = "off" })
+  }
+}
+
+############################
+# Daily history fetch: 17:30 ET (Mon-Fri)
+############################
+
+resource "aws_scheduler_schedule" "daily_history" {
+  name = "${var.project_name}-daily-history-${var.env}"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression_timezone = "America/New_York"
+  # 30 17 ? * MON-FRI * => 17:30 Mon-Fri, US Eastern
+  schedule_expression = "cron(30 17 ? * MON-FRI *)"
+
+  target {
+    arn      = aws_ecs_cluster.this.arn
+    role_arn = aws_iam_role.scheduler_role.arn
+
+    ecs_parameters {
+      task_definition_arn = aws_ecs_task_definition.worker.arn
+      launch_type         = "FARGATE"
+      platform_version    = "LATEST"
+
+      network_configuration {
+        assign_public_ip = true
+        security_groups  = [aws_security_group.worker_sg.id]
+        subnets          = data.aws_subnets.default.ids
+      }
     }
 
-    schedule_expression_timezone = "America/New_York"
-    # 30 16 ? * MON-FRI *  => 16:30 Mon-Fri, US Eastern
-    schedule_expression = "cron(30 16 ? * MON-FRI *)"
-
-    target {
-        arn      = aws_lambda_function.worker_switch.arn
-        role_arn = aws_iam_role.scheduler_role.arn
-        input    = jsonencode({ action = "off" })
-    }
+    input = jsonencode({
+      containerOverrides = [
+        {
+          name    = "worker"
+          command = ["python", "daily_history.py"]
+        }
+      ]
+    })
+  }
 }
 
 
@@ -88,17 +157,17 @@ resource "aws_scheduler_schedule" "worker_off" {
 ############################
 
 resource "aws_lambda_permission" "scheduler_on_invoke" {
-    statement_id  = "AllowSchedulerOnInvoke"
-    action        = "lambda:InvokeFunction"
-    function_name = aws_lambda_function.worker_switch.arn
-    principal     = "scheduler.amazonaws.com"
-    source_arn    = aws_scheduler_schedule.worker_on.arn
+  statement_id  = "AllowSchedulerOnInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.worker_switch.arn
+  principal     = "scheduler.amazonaws.com"
+  source_arn    = aws_scheduler_schedule.worker_on.arn
 }
 
 resource "aws_lambda_permission" "scheduler_off_invoke" {
-    statement_id  = "AllowSchedulerOffInvoke"
-    action        = "lambda:InvokeFunction"
-    function_name = aws_lambda_function.worker_switch.arn
-    principal     = "scheduler.amazonaws.com"
-    source_arn    = aws_scheduler_schedule.worker_off.arn
+  statement_id  = "AllowSchedulerOffInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.worker_switch.arn
+  principal     = "scheduler.amazonaws.com"
+  source_arn    = aws_scheduler_schedule.worker_off.arn
 }

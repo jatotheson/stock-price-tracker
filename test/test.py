@@ -9,9 +9,29 @@ import pandas as pd
 
 
 
+tickers = ["AAPL", "MSFT", "GOOGL"]  # your ~10 stocks
+
+# Fetch 1-minute bars for the last 7 days (max yfinance allows for 1m)
+df = yf.download(
+    tickers=" ".join(tickers),
+    period="7d",          # max lookback for 1m data
+    interval="1m",        # 1-minute bars
+    group_by="ticker",
+    auto_adjust=True,
+    threads=True
+)
+
+print(df)
+
+
+'''
 df = pd.read_parquet("test/stocks-194207.parquet")
 print(df.head())
 print(df.columns)
+'''
+
+
+
 
 '''
 

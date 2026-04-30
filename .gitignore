@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+/__pycache__/
 *.py[codz]
 *$py.class
 
@@ -241,6 +242,8 @@ terraform.rc
 
 
 
+downloaded_stock_data/
+*.html
 *.csv
 /tmp/*
 .DS_Store
