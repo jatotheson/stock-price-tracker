@@ -14,6 +14,7 @@ jobs:
 
     env:
       AWS_REGION: us-east-1
+      TF_VAR_notify_phone_number: ${{ secrets.NOTIFY_PHONE_NUMBER }}
 
     steps:
       - name: Checkout repo

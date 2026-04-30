@@ -2,6 +2,10 @@
 # IAM role for EventBridge Scheduler
 ############################
 
+locals {
+  daily_history_task_group = "${var.project_name}-daily-history-${var.env}"
+}
+
 data "aws_iam_policy_document" "scheduler_assume" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -132,6 +136,7 @@ resource "aws_scheduler_schedule" "daily_history" {
       task_definition_arn = aws_ecs_task_definition.worker.arn
       launch_type         = "FARGATE"
       platform_version    = "LATEST"
+      group               = local.daily_history_task_group
 
       network_configuration {
         assign_public_ip = true
