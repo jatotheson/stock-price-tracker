@@ -1,5 +1,5 @@
 ############################
-# IAM role for EventBridge Scheduler
+# IAM role for daily history EventBridge Scheduler
 ############################
 
 locals {
@@ -27,24 +27,6 @@ resource "aws_iam_role" "scheduler_role" {
   }
 }
 
-resource "aws_iam_role_policy" "scheduler_invoke_lambda" {
-  name = "${var.project_name}-scheduler-invoke-lambda-${var.env}"
-  role = aws_iam_role.scheduler_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "lambda:InvokeFunction"
-        ]
-        Resource = aws_lambda_function.worker_switch.arn
-      }
-    ]
-  })
-}
-
 resource "aws_iam_role_policy" "scheduler_run_ecs_task" {
   name = "${var.project_name}-scheduler-run-ecs-task-${var.env}"
   role = aws_iam_role.scheduler_role.id
@@ -68,49 +50,6 @@ resource "aws_iam_role_policy" "scheduler_run_ecs_task" {
       }
     ]
   })
-}
-
-
-############################
-# Schedules: ON at 09:00 ET, OFF at 16:30 ET (Mon–Fri)
-############################
-
-resource "aws_scheduler_schedule" "worker_on" {
-  name = "${var.project_name}-worker-on-${var.env}"
-
-  flexible_time_window {
-    mode = "OFF"
-  }
-
-  schedule_expression_timezone = "America/New_York"
-  # 0 9 ? * MON-FRI *  => 09:00 Mon-Fri, US Eastern
-  schedule_expression = "cron(0 9 ? * MON-FRI *)"
-  state               = "DISABLED"
-
-  target {
-    arn      = aws_lambda_function.worker_switch.arn
-    role_arn = aws_iam_role.scheduler_role.arn
-    input    = jsonencode({ action = "on" })
-  }
-}
-
-resource "aws_scheduler_schedule" "worker_off" {
-  name = "${var.project_name}-worker-off-${var.env}"
-
-  flexible_time_window {
-    mode = "OFF"
-  }
-
-  schedule_expression_timezone = "America/New_York"
-  # 30 16 ? * MON-FRI *  => 16:30 Mon-Fri, US Eastern
-  schedule_expression = "cron(30 16 ? * MON-FRI *)"
-  state               = "DISABLED"
-
-  target {
-    arn      = aws_lambda_function.worker_switch.arn
-    role_arn = aws_iam_role.scheduler_role.arn
-    input    = jsonencode({ action = "off" })
-  }
 }
 
 ############################
@@ -154,25 +93,4 @@ resource "aws_scheduler_schedule" "daily_history" {
       ]
     })
   }
-}
-
-
-############################
-# Lambda permissions for Scheduler
-############################
-
-resource "aws_lambda_permission" "scheduler_on_invoke" {
-  statement_id  = "AllowSchedulerOnInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.worker_switch.arn
-  principal     = "scheduler.amazonaws.com"
-  source_arn    = aws_scheduler_schedule.worker_on.arn
-}
-
-resource "aws_lambda_permission" "scheduler_off_invoke" {
-  statement_id  = "AllowSchedulerOffInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.worker_switch.arn
-  principal     = "scheduler.amazonaws.com"
-  source_arn    = aws_scheduler_schedule.worker_off.arn
 }

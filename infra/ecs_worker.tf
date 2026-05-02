@@ -71,12 +71,8 @@ resource "aws_iam_role_policy" "ecs_task_s3_policy" {
 }
 
 
-############################
-# DynamoDB permissions for ECS task
-############################
-
-resource "aws_iam_role_policy" "ecs_task_ddb_policy" {
-  name = "${var.project_name}-ecs-task-ddb-policy-${var.env}"
+resource "aws_iam_role_policy" "ecs_task_sns_policy" {
+  name = "${var.project_name}-ecs-task-sns-policy-${var.env}"
   role = aws_iam_role.ecs_task_role.id
 
   policy = jsonencode({
@@ -85,10 +81,9 @@ resource "aws_iam_role_policy" "ecs_task_ddb_policy" {
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:PutItem",
-          "dynamodb:DescribeTable"
+          "sns:Publish"
         ]
-        Resource = aws_dynamodb_table.intraday.arn
+        Resource = aws_sns_topic.worker_notifications.arn
       }
     ]
   })
@@ -156,7 +151,7 @@ resource "aws_ecs_cluster" "this" {
 }
 
 ############################
-# ECS Task Definition (Fargate)
+# ECS Task Definition (scheduled Fargate task)
 ############################
 
 resource "aws_ecs_task_definition" "worker" {
@@ -188,12 +183,8 @@ resource "aws_ecs_task_definition" "worker" {
           value = join(",", var.stock_symbols)
         },
         {
-          name  = "DDB_INTRADAY_TABLE"
-          value = aws_dynamodb_table.intraday.name
-        },
-        {
-          name  = "INTRADAY_TTL_DAYS"
-          value = "60"
+          name  = "NOTIFY_TOPIC_ARN"
+          value = aws_sns_topic.worker_notifications.arn
         }
       ]
       logConfiguration = {
@@ -212,27 +203,3 @@ resource "aws_ecs_task_definition" "worker" {
     Env     = var.env
   }
 }
-
-############################
-# ECS Service (Fargate)
-############################
-
-resource "aws_ecs_service" "worker" {
-  name            = "${var.project_name}-worker-service-${var.env}"
-  cluster         = aws_ecs_cluster.this.id
-  task_definition = aws_ecs_task_definition.worker.arn
-  desired_count   = 0 # start OFF by default
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    assign_public_ip = true
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.worker_sg.id]
-  }
-
-  tags = {
-    Project = var.project_name
-    Env     = var.env
-  }
-}
-

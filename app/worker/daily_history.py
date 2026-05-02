@@ -3,6 +3,7 @@ import tempfile
 from argparse import ArgumentParser, Namespace
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import boto3
@@ -13,11 +14,30 @@ import yfinance as yf
 EASTERN_TZ = ZoneInfo("America/New_York")
 DEFAULT_INTERVAL = "1m"
 DEFAULT_PERIOD = "1d"
+NOTIFY_TOPIC_ARN = os.environ.get("NOTIFY_TOPIC_ARN")
 
 
 def log(message: str) -> None:
     now = datetime.now(EASTERN_TZ).isoformat()
     print(f"[{now}] {message}", flush=True)
+
+
+def publish_notification(subject: str, details: dict[str, Any]) -> None:
+    if not NOTIFY_TOPIC_ARN:
+        return
+
+    timestamp = datetime.now(EASTERN_TZ).isoformat()
+    message_lines = [subject, f"timestamp={timestamp}"]
+    message_lines.extend(f"{key}={value}" for key, value in details.items())
+
+    try:
+        boto3.client("sns").publish(
+            TopicArn=NOTIFY_TOPIC_ARN,
+            Subject=subject[:100],
+            Message="\n".join(message_lines),
+        )
+    except Exception as exc:
+        log(f"[WARN] Failed to publish SNS notification: {exc}")
 
 
 def stock_list_from_env() -> list[str]:
@@ -225,7 +245,7 @@ def s3_key_for_history(history: pd.DataFrame, interval: str) -> str:
     )
 
 
-def upload_history(history: pd.DataFrame, bucket: str, interval: str, dry_run: bool) -> None:
+def upload_history(history: pd.DataFrame, bucket: str, interval: str, dry_run: bool) -> str:
     key = s3_key_for_history(history, interval)
     log(
         f"Prepared {len(history)} rows across {history['symbol'].nunique()} symbols "
@@ -233,7 +253,7 @@ def upload_history(history: pd.DataFrame, bucket: str, interval: str, dry_run: b
     )
 
     if dry_run:
-        return
+        return key
 
     with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as temp_file:
         temp_path = Path(temp_file.name)
@@ -245,6 +265,7 @@ def upload_history(history: pd.DataFrame, bucket: str, interval: str, dry_run: b
         temp_path.unlink(missing_ok=True)
 
     log(f"Uploaded daily history to s3://{bucket}/{key}")
+    return key
 
 
 def main() -> int:
@@ -255,6 +276,18 @@ def main() -> int:
             raise ValueError("S3 bucket is required unless --dry-run is set")
 
         symbols = parse_symbols(args.symbols)
+        publish_notification(
+            "Stock daily history started",
+            {
+                "symbols": ",".join(symbols),
+                "interval": args.interval,
+                "period": args.period if args.date is None else "date-range",
+                "target_date": args.date or "",
+                "include_prepost": args.include_prepost,
+                "dry_run": args.dry_run,
+            },
+        )
+
         raw = download_history(
             symbols=symbols,
             interval=args.interval,
@@ -266,12 +299,40 @@ def main() -> int:
 
         if history.empty:
             log("No yfinance history returned; skipping S3 upload")
+            publish_notification(
+                "Stock daily history finished with no data",
+                {
+                    "symbols": ",".join(symbols),
+                    "interval": args.interval,
+                    "bucket": args.bucket or "dry-run",
+                },
+            )
             return 0
 
-        upload_history(history, args.bucket or "dry-run", args.interval, args.dry_run)
+        bucket = args.bucket or "dry-run"
+        key = upload_history(history, bucket, args.interval, args.dry_run)
+        publish_notification(
+            "Stock daily history finished",
+            {
+                "symbols": ",".join(symbols),
+                "rows": len(history),
+                "symbol_count": history["symbol"].nunique(),
+                "bucket": bucket,
+                "key": key,
+            },
+        )
         return 0
     except Exception as exc:
         log(f"Daily history job failed: {exc}")
+        publish_notification(
+            "Stock daily history failed",
+            {
+                "error": str(exc),
+                "symbols": args.symbols,
+                "bucket": args.bucket or "",
+                "interval": args.interval,
+            },
+        )
         return 1
 
 

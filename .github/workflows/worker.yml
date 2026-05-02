@@ -1,4 +1,4 @@
-name: Build and Deploy ECS Worker
+name: Build Daily History Worker Image
 
 on:
     push:
@@ -14,8 +14,6 @@ jobs:
         env:
             AWS_REGION: us-east-1
             ECR_REPOSITORY: stock-tracker-worker
-            ECS_CLUSTER: stock-tracker-cluster-dev
-            ECS_SERVICE: stock-tracker-worker-service-dev
             IMAGE_TAG: latest
 
         steps:
@@ -49,10 +47,3 @@ jobs:
                       -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
                       . \
                       --push
-
-            - name: Force new ECS deployment
-              run: |
-                  aws ecs update-service \
-                      --cluster $ECS_CLUSTER \
-                      --service $ECS_SERVICE \
-                      --force-new-deployment
