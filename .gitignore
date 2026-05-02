@@ -244,7 +244,7 @@ terraform.rc
 
 downloaded_stock_data/
 *.html
+!scripts/stock_price_dashboard_template.html
 *.csv
 /tmp/*
 .DS_Store
-

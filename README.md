@@ -23,9 +23,9 @@ curl -X POST \
 
 curl "<https://hunf064i32.execute-api.us-east-1.amazonaws.com/prices?symbol=AAPL&range=1D>"
 
-### download parquet files in s3 bucket
+### download daily history parquet files from s3
 
-aws s3 sync s3://stock-tracker-data-dev downloaded_stock_data --only-show-errors
+aws s3 sync s3://stock-tracker-data-dev/daily_history downloaded_stock_data/daily_history --only-show-errors
 
 ### generate interactive html graph
 
