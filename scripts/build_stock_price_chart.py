@@ -10,6 +10,7 @@ scripts/stock_price_dashboard_template.html.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -21,6 +22,7 @@ DEFAULT_DOWNLOAD_DIR = PROJECT_ROOT / "downloaded_stock_data"
 DAILY_HISTORY_DIR_NAME = "daily_history"
 DEFAULT_DATA_DIR = DEFAULT_DOWNLOAD_DIR / DAILY_HISTORY_DIR_NAME
 DEFAULT_OUTPUT = PROJECT_ROOT / "stock_price_dashboard.html"
+DEFAULT_STOCK_LIST_FILE = PROJECT_ROOT / "config" / "tracked_stocks.csv"
 MINUTE_NS = 60_000_000_000
 
 
@@ -46,7 +48,47 @@ def resolve_data_dir(path: Path) -> Path:
     return path
 
 
-def read_stock_points(data_dir: Path, batch_size: int) -> dict[str, dict[str, Any]]:
+def read_stock_names(stock_list_path: Path) -> dict[str, str]:
+    if not stock_list_path.exists():
+        raise ValueError(f"Tracked stock list not found at {stock_list_path}")
+
+    with stock_list_path.open(newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        if reader.fieldnames is None:
+            raise ValueError(f"Tracked stock list is empty: {stock_list_path}")
+
+        fields_by_name = {field.strip().lower(): field for field in reader.fieldnames}
+        if "symbol" not in fields_by_name:
+            raise ValueError(
+                f"Tracked stock list must include a symbol column: {stock_list_path}"
+            )
+
+        symbol_field = fields_by_name["symbol"]
+        name_field = fields_by_name.get("name")
+        enabled_field = fields_by_name.get("enabled")
+        names: dict[str, str] = {}
+
+        for row in reader:
+            symbol = (row.get(symbol_field) or "").strip().upper()
+            if not symbol:
+                continue
+
+            enabled = (row.get(enabled_field) or "true").strip().lower()
+            if enabled in {"0", "false", "f", "no", "n", "off"}:
+                continue
+
+            name = (row.get(name_field) or "").strip() if name_field else ""
+            if name:
+                names[symbol] = name
+
+    return names
+
+
+def read_stock_points(
+    data_dir: Path,
+    batch_size: int,
+    stock_names: dict[str, str],
+) -> dict[str, dict[str, Any]]:
     try:
         import pandas as pd
         import pyarrow.dataset as ds
@@ -128,7 +170,7 @@ def read_stock_points(data_dir: Path, batch_size: int) -> dict[str, dict[str, An
     for symbol, minute_points in sorted(points_by_symbol.items()):
         sorted_points = sorted(minute_points.items())
         stock_data[symbol] = {
-            "name": names_by_symbol.get(symbol, symbol),
+            "name": stock_names.get(symbol) or names_by_symbol.get(symbol, symbol),
             "t": [minute_ms for minute_ms, _point in sorted_points],
             "p": [round(point[1], 4) for _minute_ms, point in sorted_points],
             "count": len(sorted_points),
@@ -206,6 +248,11 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Optionally downsample each symbol after minute aggregation. 0 keeps all points.",
     )
+    parser.add_argument(
+        "--stock-list-file",
+        default=str(DEFAULT_STOCK_LIST_FILE),
+        help="CSV file with symbol/name metadata. Defaults to config/tracked_stocks.csv.",
+    )
     return parser.parse_args()
 
 
@@ -213,9 +260,11 @@ def main() -> int:
     args = parse_args()
     data_dir = resolve_data_dir(project_relative_path(args.data_dir)).resolve()
     output_path = project_relative_path(args.output).resolve()
+    stock_list_path = project_relative_path(args.stock_list_file).resolve()
 
     try:
-        stock_data = read_stock_points(data_dir, args.batch_size)
+        stock_names = read_stock_names(stock_list_path)
+        stock_data = read_stock_points(data_dir, args.batch_size, stock_names)
         stock_data = downsample_stock_data(stock_data, args.max_points_per_symbol)
         write_dashboard(stock_data, output_path)
     except (RuntimeError, ValueError) as exc:

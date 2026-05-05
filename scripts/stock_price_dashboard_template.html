@@ -10,6 +10,7 @@
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #050608;
       color: #f7f8fa;
+      --accent: #00c805;
     }
 
     * {
@@ -74,11 +75,93 @@
       font-weight: 650;
     }
 
+    .stock-picker {
+      position: relative;
+      margin: 18px 0 10px;
+    }
+
+    .search-input {
+      appearance: none;
+      width: 100%;
+      border: 1px solid #2a3038;
+      background: #0d1117;
+      color: #f7f8fa;
+      border-radius: 8px;
+      min-height: 44px;
+      padding: 0 14px;
+      font: inherit;
+      font-weight: 650;
+    }
+
+    .search-input::placeholder {
+      color: #747d8a;
+    }
+
+    .search-input:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .search-results {
+      position: absolute;
+      z-index: 10;
+      top: calc(100% + 6px);
+      left: 0;
+      display: none;
+      width: min(540px, 100%);
+      max-height: 320px;
+      overflow-y: auto;
+      border: 1px solid #2a3038;
+      border-radius: 8px;
+      background: #0d1117;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+    }
+
+    .search-results.is-open {
+      display: block;
+    }
+
+    .search-result {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      width: 100%;
+      min-height: 46px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: #f7f8fa;
+      padding: 0 12px;
+      text-align: left;
+    }
+
+    .search-result:hover,
+    .search-result.is-focused {
+      background: #151b23;
+      border-color: transparent;
+    }
+
+    .result-symbol {
+      font-weight: 780;
+    }
+
+    .result-name {
+      min-width: 0;
+      color: #89919c;
+      font-size: 13px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .buttons {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin: 16px 0 18px;
+      min-height: 0;
+      margin: 10px 0 18px;
     }
 
     button {
@@ -102,6 +185,76 @@
       border-color: var(--accent);
       color: #061006;
       background: var(--accent);
+    }
+
+    .stock-toggle-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .stock-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-color: var(--stock-color);
+      color: #f7f8fa;
+      padding-right: 22px;
+    }
+
+    .stock-toggle.is-hidden {
+      border-color: #2a3038;
+      color: #89919c;
+      background: #0d1117;
+    }
+
+    .swatch {
+      width: 10px;
+      height: 10px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: var(--stock-color);
+    }
+
+    .stock-toggle.is-hidden .swatch {
+      border: 1px solid var(--stock-color);
+      background: transparent;
+    }
+
+    .toggle-state {
+      color: #89919c;
+      font-size: 12px;
+      font-weight: 780;
+      text-transform: uppercase;
+    }
+
+    .remove-stock {
+      position: absolute;
+      top: -7px;
+      right: -7px;
+      display: none;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      min-height: 18px;
+      padding: 0;
+      border-radius: 999px;
+      border-color: #3b434f;
+      background: #f7f8fa;
+      color: #050608;
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .stock-toggle-wrap:hover .remove-stock,
+    .stock-toggle-wrap:focus-within .remove-stock {
+      display: grid;
+    }
+
+    .remove-stock:hover {
+      border-color: var(--stock-color);
+      background: var(--stock-color);
+      color: #050608;
     }
 
     .range-panel {
@@ -219,6 +372,10 @@
         margin-top: 14px;
       }
 
+      .search-results {
+        width: 100%;
+      }
+
       .chart-shell {
         min-height: 360px;
         height: 58vh;
@@ -239,7 +396,19 @@
       </div>
     </section>
 
-    <nav class="buttons" id="stockButtons" aria-label="Stocks"></nav>
+    <section class="stock-picker" id="stockPicker">
+      <input
+        class="search-input"
+        id="stockSearchInput"
+        type="search"
+        autocomplete="off"
+        placeholder="Search symbols or company names"
+        aria-label="Search stocks"
+        aria-controls="stockSearchResults">
+      <div class="search-results" id="stockSearchResults" role="listbox"></div>
+    </section>
+
+    <nav class="buttons" id="stockButtons" aria-label="Selected stocks"></nav>
 
     <section class="range-panel" aria-label="Date range">
       <div>
@@ -276,6 +445,9 @@
     const symbols = Object.keys(STOCK_DATA).sort();
     const canvas = document.getElementById("chart");
     const ctx = canvas.getContext("2d");
+    const stockPicker = document.getElementById("stockPicker");
+    const searchInput = document.getElementById("stockSearchInput");
+    const searchResults = document.getElementById("stockSearchResults");
     const buttons = document.getElementById("stockButtons");
     const symbolLabel = document.getElementById("symbolLabel");
     const nameLabel = document.getElementById("nameLabel");
@@ -289,7 +461,24 @@
     const resetRangeButton = document.getElementById("resetRangeButton");
     const rangeError = document.getElementById("rangeError");
 
-    let selected = symbols[0];
+    const colorPalette = [
+      "#18a0fb",
+      "#ff6b6b",
+      "#ffd166",
+      "#06d6a0",
+      "#b388ff",
+      "#ff9f1c",
+      "#4cc9f0",
+      "#f72585",
+      "#90be6d",
+      "#f94144",
+      "#577590",
+      "#43aa8b"
+    ];
+
+    let selectedStocks = [];
+    let nextColorIndex = 0;
+    let focusedSearchIndex = -1;
     let hover = null;
     let geometry = null;
     let selectedRange = null;
@@ -336,9 +525,8 @@
       return `${sign}${formatPrice(absolute)} (${sign}${percent.format(ratio)})`;
     }
 
-    function priceColor(points) {
-      if (!points || points.p.length < 2) return "#00c805";
-      return points.p[points.p.length - 1] >= points.p[0] ? "#00c805" : "#ff5000";
+    function stockName(symbol) {
+      return STOCK_DATA[symbol].name || symbol;
     }
 
     function computeDataBounds() {
@@ -415,13 +603,30 @@
       };
     }
 
+    function visibleStocks() {
+      return selectedStocks.filter((stock) => stock.visible);
+    }
+
     function pointCountText() {
-      const points = visiblePointsFor(STOCK_DATA[selected]);
-      return `${points.count.toLocaleString()} points in range`;
+      if (!selectedStocks.length) return "No stocks selected";
+
+      const activeStocks = visibleStocks();
+      if (!activeStocks.length) return "No stocks visible";
+
+      let pointCount = 0;
+      for (const stock of activeStocks) {
+        pointCount += visiblePointsFor(STOCK_DATA[stock.symbol]).count;
+      }
+
+      const stockText = activeStocks.length === 1 ? "stock" : "stocks";
+      return `${pointCount.toLocaleString()} points across ${activeStocks.length.toLocaleString()} visible ${stockText}`;
     }
 
     function initRangeControls() {
-      if (!Number.isFinite(dataBounds.min) || !Number.isFinite(dataBounds.max)) return;
+      if (!Number.isFinite(dataBounds.min) || !Number.isFinite(dataBounds.max)) {
+        databaseRangeLabel.textContent = "No data";
+        return;
+      }
 
       const minValue = toDateInputValue(dataBounds.min);
       const maxValue = toDateInputValue(dataBounds.max);
@@ -469,27 +674,174 @@
       applyDateRange();
     }
 
-    function buildButtons() {
-      buttons.innerHTML = "";
-      for (const symbol of symbols) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = symbol;
-        button.title = STOCK_DATA[symbol].name || symbol;
-        button.addEventListener("click", () => {
-          selected = symbol;
-          hover = null;
-          updateButtons();
-          draw();
-        });
-        buttons.appendChild(button);
-      }
-      updateButtons();
+    function isStockSelected(symbol) {
+      return selectedStocks.some((stock) => stock.symbol === symbol);
     }
 
-    function updateButtons() {
-      for (const button of buttons.children) {
-        button.classList.toggle("active", button.textContent === selected);
+    function searchRank(symbol, query) {
+      const normalizedSymbol = symbol.toLowerCase();
+      const normalizedName = stockName(symbol).toLowerCase();
+      if (normalizedSymbol === query) return 0;
+      if (normalizedSymbol.startsWith(query)) return 1;
+      if (normalizedName.startsWith(query)) return 2;
+      if (normalizedSymbol.includes(query)) return 3;
+      if (normalizedName.includes(query)) return 4;
+      return 99;
+    }
+
+    function searchMatches(query) {
+      const normalized = query.trim().toLowerCase();
+      if (!normalized) return [];
+
+      return symbols
+        .filter((symbol) => !isStockSelected(symbol))
+        .map((symbol) => ({ symbol, rank: searchRank(symbol, normalized) }))
+        .filter((match) => match.rank < 99)
+        .sort((a, b) => a.rank - b.rank || a.symbol.localeCompare(b.symbol))
+        .slice(0, 10)
+        .map((match) => match.symbol);
+    }
+
+    function closeSearchResults() {
+      searchResults.classList.remove("is-open");
+      searchResults.innerHTML = "";
+      focusedSearchIndex = -1;
+    }
+
+    function renderSearchResults() {
+      const matches = searchMatches(searchInput.value);
+      searchResults.innerHTML = "";
+
+      if (!matches.length) {
+        closeSearchResults();
+        return;
+      }
+
+      if (focusedSearchIndex >= matches.length) {
+        focusedSearchIndex = matches.length - 1;
+      }
+
+      matches.forEach((symbol, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "search-result";
+        button.setAttribute("role", "option");
+        button.setAttribute("aria-selected", index === focusedSearchIndex ? "true" : "false");
+        button.classList.toggle("is-focused", index === focusedSearchIndex);
+        button.addEventListener("mousedown", (event) => event.preventDefault());
+        button.addEventListener("click", () => addStock(symbol));
+
+        const symbolLabel = document.createElement("span");
+        symbolLabel.className = "result-symbol";
+        symbolLabel.textContent = symbol;
+
+        const nameLabel = document.createElement("span");
+        nameLabel.className = "result-name";
+        nameLabel.textContent = stockName(symbol);
+
+        button.append(symbolLabel, nameLabel);
+        searchResults.appendChild(button);
+      });
+
+      searchResults.classList.add("is-open");
+    }
+
+    function nextStockColor() {
+      const usedColors = new Set(selectedStocks.map((stock) => stock.color));
+      for (let i = 0; i < colorPalette.length; i++) {
+        const color = colorPalette[nextColorIndex % colorPalette.length];
+        nextColorIndex += 1;
+        if (!usedColors.has(color)) return color;
+      }
+
+      const hue = Math.round((nextColorIndex * 137.508) % 360);
+      nextColorIndex += 1;
+      return `hsl(${hue} 78% 60%)`;
+    }
+
+    function addStock(symbol) {
+      const normalized = symbol.trim().toUpperCase();
+      if (!STOCK_DATA[normalized]) return;
+
+      const existing = selectedStocks.find((stock) => stock.symbol === normalized);
+      if (existing) {
+        existing.visible = true;
+      } else {
+        selectedStocks.push({
+          symbol: normalized,
+          color: nextStockColor(),
+          visible: true
+        });
+      }
+
+      searchInput.value = "";
+      closeSearchResults();
+      renderSelectedButtons();
+      hover = null;
+      draw();
+      searchInput.focus();
+    }
+
+    function toggleStock(symbol) {
+      const stock = selectedStocks.find((item) => item.symbol === symbol);
+      if (!stock) return;
+      stock.visible = !stock.visible;
+      renderSelectedButtons();
+      hover = null;
+      draw();
+    }
+
+    function removeStock(symbol) {
+      selectedStocks = selectedStocks.filter((stock) => stock.symbol !== symbol);
+      renderSelectedButtons();
+      renderSearchResults();
+      hover = null;
+      draw();
+    }
+
+    function renderSelectedButtons() {
+      buttons.innerHTML = "";
+
+      for (const stock of selectedStocks) {
+        const wrapper = document.createElement("span");
+        wrapper.className = "stock-toggle-wrap";
+        wrapper.style.setProperty("--stock-color", stock.color);
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "stock-toggle";
+        button.classList.toggle("is-visible", stock.visible);
+        button.classList.toggle("is-hidden", !stock.visible);
+        button.setAttribute("aria-pressed", stock.visible ? "true" : "false");
+        button.title = stockName(stock.symbol);
+        button.addEventListener("click", () => toggleStock(stock.symbol));
+
+        const swatch = document.createElement("span");
+        swatch.className = "swatch";
+        swatch.setAttribute("aria-hidden", "true");
+
+        const symbol = document.createElement("span");
+        symbol.textContent = stock.symbol;
+
+        const state = document.createElement("span");
+        state.className = "toggle-state";
+        state.textContent = stock.visible ? "On" : "Off";
+
+        button.append(swatch, symbol, state);
+
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "remove-stock";
+        removeButton.textContent = "X";
+        removeButton.title = `Remove ${stock.symbol}`;
+        removeButton.setAttribute("aria-label", `Remove ${stock.symbol}`);
+        removeButton.addEventListener("click", (event) => {
+          event.stopPropagation();
+          removeStock(stock.symbol);
+        });
+
+        wrapper.append(button, removeButton);
+        buttons.appendChild(wrapper);
       }
     }
 
@@ -507,6 +859,8 @@
     }
 
     function nearestIndex(times, target) {
+      if (!times.length) return -1;
+
       let lo = 0;
       let hi = times.length - 1;
       while (lo < hi) {
@@ -579,9 +933,9 @@
       ctx.restore();
     }
 
-    function drawLine(points, plot, minY, maxY, minX, maxX, accent) {
-      const times = points.t;
-      const prices = points.p;
+    function drawLine(series, plot, minY, maxY, minX, maxX) {
+      const times = series.points.t;
+      const prices = series.points.p;
       const xScale = plot.width / Math.max(1, maxX - minX);
       const yScale = plot.height / Math.max(0.01, maxY - minY);
 
@@ -589,7 +943,7 @@
       ctx.lineWidth = 2.25;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
-      ctx.strokeStyle = accent;
+      ctx.strokeStyle = series.color;
       ctx.beginPath();
       for (let i = 0; i < times.length; i++) {
         const x = plot.left + (times[i] - minX) * xScale;
@@ -598,63 +952,146 @@
         else ctx.lineTo(x, y);
       }
       ctx.stroke();
-
-      const gradient = ctx.createLinearGradient(0, plot.top, 0, plot.bottom);
-      gradient.addColorStop(0, accent === "#00c805" ? "rgba(0,200,5,0.18)" : "rgba(255,80,0,0.18)");
-      gradient.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.lineTo(plot.right, plot.bottom);
-      ctx.lineTo(plot.left, plot.bottom);
-      ctx.closePath();
-      ctx.fillStyle = gradient;
-      ctx.fill();
       ctx.restore();
-
-      return { xScale, yScale };
     }
 
-    function drawHover(points, plot, minY, maxY, minX, maxX) {
+    function drawHover(seriesList, plot, minY, maxY, minX, maxX) {
       if (!hover || !geometry) return;
       if (hover.x < plot.left || hover.x > plot.right || hover.y < plot.top || hover.y > plot.bottom) return;
 
-      const times = points.t;
-      const prices = points.p;
       const targetTime = minX + ((hover.x - plot.left) / plot.width) * (maxX - minX);
-      const index = nearestIndex(times, targetTime);
-      const time = times[index];
-      const price = prices[index];
-      const x = plot.left + ((time - minX) / Math.max(1, maxX - minX)) * plot.width;
-      const y = plot.bottom - ((price - minY) / Math.max(0.01, maxY - minY)) * plot.height;
+      const items = [];
+
+      for (const series of seriesList) {
+        const times = series.points.t;
+        const prices = series.points.p;
+        const index = nearestIndex(times, targetTime);
+        if (index < 0) continue;
+
+        const time = times[index];
+        const price = prices[index];
+        const x = plot.left + ((time - minX) / Math.max(1, maxX - minX)) * plot.width;
+        const y = plot.bottom - ((price - minY) / Math.max(0.01, maxY - minY)) * plot.height;
+        items.push({ symbol: series.symbol, color: series.color, time, price, x, y });
+      }
+
+      if (!items.length) return;
 
       ctx.save();
       ctx.strokeStyle = "rgba(247,248,250,0.28)";
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 6]);
       ctx.beginPath();
-      ctx.moveTo(x, plot.top);
-      ctx.lineTo(x, plot.bottom);
-      ctx.moveTo(plot.left, y);
-      ctx.lineTo(plot.right, y);
+      ctx.moveTo(hover.x, plot.top);
+      ctx.lineTo(hover.x, plot.bottom);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.fillStyle = "#f7f8fa";
-      ctx.beginPath();
-      ctx.arc(x, y, 4, 0, Math.PI * 2);
-      ctx.fill();
+      for (const item of items) {
+        ctx.fillStyle = item.color;
+        ctx.beginPath();
+        ctx.arc(item.x, item.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
 
-      labelBox(hoverDate.format(new Date(time)), x, plot.bottom + 36);
-      labelBox(formatPrice(price), plot.right - 4, y - 12, "right");
-      pointLabel.textContent = `${hoverDate.format(new Date(time))}  |  ${formatPrice(price)}`;
+      labelBox(hoverDate.format(new Date(items[0].time)), hover.x, plot.bottom + 36);
+      pointLabel.textContent = items
+        .map((item) => `${item.symbol} ${formatPrice(item.price)}`)
+        .join("  |  ");
+    }
+
+    function selectedSeries() {
+      return visibleStocks().map((stock) => ({
+        symbol: stock.symbol,
+        color: stock.color,
+        points: visiblePointsFor(STOCK_DATA[stock.symbol])
+      }));
+    }
+
+    function seriesBounds(seriesList) {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+
+      for (const series of seriesList) {
+        const times = series.points.t;
+        const prices = series.points.p;
+        if (!times.length) continue;
+
+        minX = Math.min(minX, times[0]);
+        maxX = Math.max(maxX, times[times.length - 1]);
+
+        for (const price of prices) {
+          minY = Math.min(minY, price);
+          maxY = Math.max(maxY, price);
+        }
+      }
+
+      return { minX, maxX, minY, maxY };
+    }
+
+    function updateSummary() {
+      const activeStocks = visibleStocks();
+
+      if (!selectedStocks.length) {
+        symbolLabel.textContent = "Stock Prices";
+        nameLabel.textContent = "No stocks selected";
+        priceLabel.textContent = "0 shown";
+        changeLabel.textContent = "No stocks selected";
+        changeLabel.style.color = "#a8afb8";
+        return;
+      }
+
+      if (selectedStocks.length === 1) {
+        const stock = selectedStocks[0];
+        const points = visiblePointsFor(STOCK_DATA[stock.symbol]);
+        symbolLabel.textContent = stock.symbol;
+        nameLabel.textContent = stockName(stock.symbol);
+
+        if (!stock.visible) {
+          priceLabel.textContent = "--";
+          changeLabel.textContent = "Hidden";
+          changeLabel.style.color = "#a8afb8";
+          return;
+        }
+
+        if (!points.t.length) {
+          priceLabel.textContent = "--";
+          changeLabel.textContent = "No data in selected range";
+          changeLabel.style.color = "#a8afb8";
+          return;
+        }
+
+        const first = points.p[0];
+        const last = points.p[points.p.length - 1];
+        priceLabel.textContent = formatPrice(last);
+        changeLabel.textContent = formatChange(first, last);
+        changeLabel.style.color = stock.color;
+        return;
+      }
+
+      const hiddenCount = selectedStocks.length - activeStocks.length;
+      symbolLabel.textContent = `${selectedStocks.length} Stocks`;
+      nameLabel.textContent = selectedStocks.map((stock) => stock.symbol).join(", ");
+      priceLabel.textContent = `${activeStocks.length} shown`;
+      changeLabel.textContent = hiddenCount === 0 ? "All visible" : `${hiddenCount} hidden`;
+      changeLabel.style.color = "#a8afb8";
+    }
+
+    function drawEmptyMessage(message, plot) {
+      ctx.fillStyle = "#a8afb8";
+      ctx.font = "16px Inter, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(message, geometry.width / 2, plot.top + plot.height / 2);
     }
 
     function draw() {
-      if (!selected) return;
       geometry = resizeCanvas();
-      const allPoints = STOCK_DATA[selected];
-      const points = visiblePointsFor(allPoints);
-      const accent = priceColor(points);
-      setAccent(accent);
+      const activeStocks = visibleStocks();
+      setAccent(activeStocks[0]?.color || "#00c805");
 
       ctx.clearRect(0, 0, geometry.width, geometry.height);
       ctx.fillStyle = "#050608";
@@ -669,44 +1106,74 @@
       plot.width = plot.right - plot.left;
       plot.height = plot.bottom - plot.top;
 
-      symbolLabel.textContent = selected;
-      nameLabel.textContent = allPoints.name || selected;
+      updateSummary();
 
-      if (!points || points.t.length === 0) {
-        ctx.fillStyle = "#a8afb8";
-        ctx.font = "16px Inter, system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("No data in selected date range", geometry.width / 2, geometry.height / 2);
-        priceLabel.textContent = "--";
-        changeLabel.textContent = "No data in selected range";
-        changeLabel.style.color = "#a8afb8";
+      if (!selectedStocks.length) {
+        drawEmptyMessage("No stocks selected", plot);
+        rangeLabel.textContent = selectedRangeLabel();
+        pointLabel.textContent = pointCountText();
+        return;
+      }
+
+      if (!activeStocks.length) {
+        drawEmptyMessage("No stocks visible", plot);
+        rangeLabel.textContent = selectedRangeLabel();
+        pointLabel.textContent = pointCountText();
+        return;
+      }
+
+      const seriesList = selectedSeries().filter((series) => series.points.t.length > 0);
+      if (!seriesList.length) {
+        drawEmptyMessage("No data in selected date range", plot);
         rangeLabel.textContent = selectedRangeLabel();
         pointLabel.textContent = "0 points in range";
         return;
       }
 
-      const prices = points.p;
-      const times = points.t;
-      const minX = times[0];
-      const maxX = times[times.length - 1];
-      let minY = Math.min(...prices);
-      let maxY = Math.max(...prices);
-      const yPad = Math.max((maxY - minY) * 0.08, maxY * 0.005, 0.5);
+      const bounds = seriesBounds(seriesList);
+      let { minX, maxX, minY, maxY } = bounds;
+      const yPad = Math.max((maxY - minY) * 0.08, Math.abs(maxY) * 0.005, 0.5);
       minY -= yPad;
       maxY += yPad;
 
-      const first = prices[0];
-      const last = prices[prices.length - 1];
-      priceLabel.textContent = formatPrice(last);
-      changeLabel.textContent = formatChange(first, last);
-      changeLabel.style.color = accent;
       rangeLabel.textContent = `${compactDate.format(new Date(minX))} - ${compactDate.format(new Date(maxX))}`;
       if (!hover) pointLabel.textContent = pointCountText();
 
       drawGrid(plot, minY, maxY, minX, maxX);
-      drawLine(points, plot, minY, maxY, minX, maxX, accent);
-      drawHover(points, plot, minY, maxY, minX, maxX);
+      for (const series of seriesList) {
+        drawLine(series, plot, minY, maxY, minX, maxX);
+      }
+      drawHover(seriesList, plot, minY, maxY, minX, maxX);
     }
+
+    searchInput.addEventListener("input", () => {
+      focusedSearchIndex = -1;
+      renderSearchResults();
+    });
+
+    searchInput.addEventListener("focus", renderSearchResults);
+
+    searchInput.addEventListener("keydown", (event) => {
+      const matches = searchMatches(searchInput.value);
+      if (event.key === "ArrowDown" && matches.length) {
+        event.preventDefault();
+        focusedSearchIndex = (focusedSearchIndex + 1) % matches.length;
+        renderSearchResults();
+      } else if (event.key === "ArrowUp" && matches.length) {
+        event.preventDefault();
+        focusedSearchIndex = focusedSearchIndex <= 0 ? matches.length - 1 : focusedSearchIndex - 1;
+        renderSearchResults();
+      } else if (event.key === "Enter" && matches.length) {
+        event.preventDefault();
+        addStock(matches[Math.max(0, focusedSearchIndex)]);
+      } else if (event.key === "Escape") {
+        closeSearchResults();
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!stockPicker.contains(event.target)) closeSearchResults();
+    });
 
     canvas.addEventListener("mousemove", (event) => {
       const rect = canvas.getBoundingClientRect();
@@ -728,7 +1195,7 @@
     resetRangeButton.addEventListener("click", resetDateRange);
     window.addEventListener("resize", draw);
     initRangeControls();
-    buildButtons();
+    renderSelectedButtons();
     draw();
   </script>
 </body>
