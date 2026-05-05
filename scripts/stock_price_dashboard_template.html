@@ -201,6 +201,17 @@
       padding-right: 22px;
     }
 
+    .stock-toggle.is-active {
+      box-shadow: 0 0 0 1px var(--stock-color), 0 10px 28px rgba(0, 0, 0, 0.24);
+      color: #f7f8fa;
+    }
+
+    .stock-toggle.is-muted {
+      border-color: #2a3038;
+      color: #a8afb8;
+      opacity: 0.72;
+    }
+
     .stock-toggle.is-hidden {
       border-color: #2a3038;
       color: #89919c;
@@ -478,6 +489,7 @@
     const defaultSelectedSymbols = ["AAPL", "NVDA"];
 
     let selectedStocks = [];
+    let activeSymbol = null;
     let nextColorIndex = 0;
     let focusedSearchIndex = -1;
     let hover = null;
@@ -524,6 +536,16 @@
       const ratio = first === 0 ? 0 : absolute / first;
       const sign = absolute >= 0 ? "+" : "";
       return `${sign}${formatPrice(absolute)} (${sign}${percent.format(ratio)})`;
+    }
+
+    function percentChangeValue(first, value) {
+      if (!Number.isFinite(first) || first === 0) return 0;
+      return ((value - first) / first) * 100;
+    }
+
+    function formatPercentPoints(value) {
+      const sign = value > 0 ? "+" : "";
+      return `${sign}${value.toFixed(2)}%`;
     }
 
     function stockName(symbol) {
@@ -605,22 +627,19 @@
     }
 
     function visibleStocks() {
-      return selectedStocks.filter((stock) => stock.visible);
+      return selectedStocks;
     }
 
     function pointCountText() {
       if (!selectedStocks.length) return "No stocks selected";
 
-      const activeStocks = visibleStocks();
-      if (!activeStocks.length) return "No stocks visible";
-
       let pointCount = 0;
-      for (const stock of activeStocks) {
+      for (const stock of selectedStocks) {
         pointCount += visiblePointsFor(STOCK_DATA[stock.symbol]).count;
       }
 
-      const stockText = activeStocks.length === 1 ? "stock" : "stocks";
-      return `${pointCount.toLocaleString()} points across ${activeStocks.length.toLocaleString()} visible ${stockText}`;
+      const stockText = selectedStocks.length === 1 ? "stock" : "stocks";
+      return `${pointCount.toLocaleString()} points across ${selectedStocks.length.toLocaleString()} ${stockText}`;
     }
 
     function initRangeControls() {
@@ -765,10 +784,10 @@
         if (!STOCK_DATA[symbol] || isStockSelected(symbol)) continue;
         selectedStocks.push({
           symbol,
-          color: nextStockColor(),
-          visible: true
+          color: nextStockColor()
         });
       }
+      activeSymbol = selectedStocks[0]?.symbol || null;
     }
 
     function addStock(symbol) {
@@ -776,15 +795,13 @@
       if (!STOCK_DATA[normalized]) return;
 
       const existing = selectedStocks.find((stock) => stock.symbol === normalized);
-      if (existing) {
-        existing.visible = true;
-      } else {
+      if (!existing) {
         selectedStocks.push({
           symbol: normalized,
-          color: nextStockColor(),
-          visible: true
+          color: nextStockColor()
         });
       }
+      activeSymbol = normalized;
 
       searchInput.value = "";
       closeSearchResults();
@@ -794,10 +811,10 @@
       searchInput.focus();
     }
 
-    function toggleStock(symbol) {
+    function focusStock(symbol) {
       const stock = selectedStocks.find((item) => item.symbol === symbol);
       if (!stock) return;
-      stock.visible = !stock.visible;
+      activeSymbol = symbol;
       renderSelectedButtons();
       hover = null;
       draw();
@@ -805,6 +822,9 @@
 
     function removeStock(symbol) {
       selectedStocks = selectedStocks.filter((stock) => stock.symbol !== symbol);
+      if (activeSymbol === symbol) {
+        activeSymbol = selectedStocks[0]?.symbol || null;
+      }
       renderSelectedButtons();
       renderSearchResults();
       hover = null;
@@ -815,6 +835,7 @@
       buttons.innerHTML = "";
 
       for (const stock of selectedStocks) {
+        const isActive = stock.symbol === activeSymbol;
         const wrapper = document.createElement("span");
         wrapper.className = "stock-toggle-wrap";
         wrapper.style.setProperty("--stock-color", stock.color);
@@ -822,11 +843,11 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "stock-toggle";
-        button.classList.toggle("is-visible", stock.visible);
-        button.classList.toggle("is-hidden", !stock.visible);
-        button.setAttribute("aria-pressed", stock.visible ? "true" : "false");
+        button.classList.toggle("is-active", isActive);
+        button.classList.toggle("is-muted", !isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
         button.title = stockName(stock.symbol);
-        button.addEventListener("click", () => toggleStock(stock.symbol));
+        button.addEventListener("click", () => focusStock(stock.symbol));
 
         const swatch = document.createElement("span");
         swatch.className = "swatch";
@@ -837,7 +858,7 @@
 
         const state = document.createElement("span");
         state.className = "toggle-state";
-        state.textContent = stock.visible ? "On" : "Off";
+        state.textContent = isActive ? "Focus" : "Muted";
 
         button.append(swatch, symbol, state);
 
@@ -906,6 +927,38 @@
       ctx.restore();
     }
 
+    function stackedLabelBox(primary, secondary, x, y) {
+      ctx.save();
+      const padX = 18;
+      const primaryFont = "12px Inter, system-ui, sans-serif";
+      const secondaryFont = "700 12px Inter, system-ui, sans-serif";
+      ctx.font = primaryFont;
+      const primaryWidth = ctx.measureText(primary).width;
+      ctx.font = secondaryFont;
+      const secondaryWidth = ctx.measureText(secondary).width;
+      const width = Math.max(
+        primaryWidth,
+        secondaryWidth
+      ) + padX * 2;
+      const height = 42;
+      let left = x - width / 2;
+      left = Math.max(6, Math.min(geometry.width - width - 6, left));
+      const top = Math.max(6, Math.min(geometry.height - height - 6, y));
+
+      ctx.fillStyle = "#f7f8fa";
+      roundRect(left, top, width, height, 6);
+      ctx.fill();
+
+      ctx.fillStyle = "#050608";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = primaryFont;
+      ctx.fillText(primary, left + width / 2, top + 14);
+      ctx.font = secondaryFont;
+      ctx.fillText(secondary, left + width / 2, top + 29);
+      ctx.restore();
+    }
+
     function roundRect(x, y, width, height, radius) {
       ctx.beginPath();
       ctx.moveTo(x + radius, y);
@@ -932,7 +985,7 @@
         ctx.moveTo(plot.left, y);
         ctx.lineTo(plot.right, y);
         ctx.stroke();
-        ctx.fillText(formatPrice(value), plot.right - 4, y - 8);
+        ctx.fillText(formatPercentPoints(value), plot.right - 4, y - 8);
       }
 
       ctx.textAlign = "center";
@@ -947,19 +1000,20 @@
 
     function drawLine(series, plot, minY, maxY, minX, maxX) {
       const times = series.points.t;
-      const prices = series.points.p;
+      const values = series.values;
       const xScale = plot.width / Math.max(1, maxX - minX);
       const yScale = plot.height / Math.max(0.01, maxY - minY);
 
       ctx.save();
-      ctx.lineWidth = 2.25;
+      ctx.globalAlpha = series.isActive ? 1 : 0.36;
+      ctx.lineWidth = series.isActive ? 3 : 1.35;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.strokeStyle = series.color;
       ctx.beginPath();
       for (let i = 0; i < times.length; i++) {
         const x = plot.left + (times[i] - minX) * xScale;
-        const y = plot.bottom - (prices[i] - minY) * yScale;
+        const y = plot.bottom - (values[i] - minY) * yScale;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -977,14 +1031,25 @@
       for (const series of seriesList) {
         const times = series.points.t;
         const prices = series.points.p;
+        const values = series.values;
         const index = nearestIndex(times, targetTime);
         if (index < 0) continue;
 
         const time = times[index];
         const price = prices[index];
+        const value = values[index];
         const x = plot.left + ((time - minX) / Math.max(1, maxX - minX)) * plot.width;
-        const y = plot.bottom - ((price - minY) / Math.max(0.01, maxY - minY)) * plot.height;
-        items.push({ symbol: series.symbol, color: series.color, time, price, x, y });
+        const y = plot.bottom - ((value - minY) / Math.max(0.01, maxY - minY)) * plot.height;
+        items.push({
+          symbol: series.symbol,
+          color: series.color,
+          isActive: series.isActive,
+          time,
+          price,
+          value,
+          x,
+          y
+        });
       }
 
       if (!items.length) return;
@@ -1000,25 +1065,39 @@
       ctx.setLineDash([]);
 
       for (const item of items) {
+        ctx.globalAlpha = item.isActive ? 1 : 0.46;
         ctx.fillStyle = item.color;
         ctx.beginPath();
-        ctx.arc(item.x, item.y, 4, 0, Math.PI * 2);
+        ctx.arc(item.x, item.y, item.isActive ? 4.5 : 3, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();
 
-      labelBox(hoverDate.format(new Date(items[0].time)), hover.x, plot.bottom + 36);
+      const highlightedItem = items.find((item) => item.isActive) || items[0];
+      stackedLabelBox(
+        hoverDate.format(new Date(highlightedItem.time)),
+        `${highlightedItem.symbol} ${formatPrice(highlightedItem.price)}`,
+        hover.x,
+        plot.bottom + 34
+      );
       pointLabel.textContent = items
-        .map((item) => `${item.symbol} ${formatPrice(item.price)}`)
+        .sort((a, b) => Number(b.isActive) - Number(a.isActive))
+        .map((item) => `${item.symbol} ${formatPrice(item.price)} (${formatPercentPoints(item.value)})`)
         .join("  |  ");
     }
 
     function selectedSeries() {
-      return visibleStocks().map((stock) => ({
-        symbol: stock.symbol,
-        color: stock.color,
-        points: visiblePointsFor(STOCK_DATA[stock.symbol])
-      }));
+      return visibleStocks().map((stock) => {
+        const points = visiblePointsFor(STOCK_DATA[stock.symbol]);
+        const first = points.p[0];
+        return {
+          symbol: stock.symbol,
+          color: stock.color,
+          isActive: stock.symbol === activeSymbol,
+          points,
+          values: points.p.map((price) => percentChangeValue(first, price))
+        };
+      });
     }
 
     function seriesBounds(seriesList) {
@@ -1029,15 +1108,15 @@
 
       for (const series of seriesList) {
         const times = series.points.t;
-        const prices = series.points.p;
+        const values = series.values;
         if (!times.length) continue;
 
         minX = Math.min(minX, times[0]);
         maxX = Math.max(maxX, times[times.length - 1]);
 
-        for (const price of prices) {
-          minY = Math.min(minY, price);
-          maxY = Math.max(maxY, price);
+        for (const value of values) {
+          minY = Math.min(minY, value);
+          maxY = Math.max(maxY, value);
         }
       }
 
@@ -1045,8 +1124,6 @@
     }
 
     function updateSummary() {
-      const activeStocks = visibleStocks();
-
       if (!selectedStocks.length) {
         symbolLabel.textContent = "Stock Prices";
         nameLabel.textContent = "No stocks selected";
@@ -1056,40 +1133,24 @@
         return;
       }
 
-      if (selectedStocks.length === 1) {
-        const stock = selectedStocks[0];
-        const points = visiblePointsFor(STOCK_DATA[stock.symbol]);
-        symbolLabel.textContent = stock.symbol;
-        nameLabel.textContent = stockName(stock.symbol);
+      const stock = selectedStocks.find((item) => item.symbol === activeSymbol) || selectedStocks[0];
+      activeSymbol = stock.symbol;
+      const points = visiblePointsFor(STOCK_DATA[stock.symbol]);
+      symbolLabel.textContent = stock.symbol;
+      nameLabel.textContent = stockName(stock.symbol);
 
-        if (!stock.visible) {
-          priceLabel.textContent = "--";
-          changeLabel.textContent = "Hidden";
-          changeLabel.style.color = "#a8afb8";
-          return;
-        }
-
-        if (!points.t.length) {
-          priceLabel.textContent = "--";
-          changeLabel.textContent = "No data in selected range";
-          changeLabel.style.color = "#a8afb8";
-          return;
-        }
-
-        const first = points.p[0];
-        const last = points.p[points.p.length - 1];
-        priceLabel.textContent = formatPrice(last);
-        changeLabel.textContent = formatChange(first, last);
-        changeLabel.style.color = stock.color;
+      if (!points.t.length) {
+        priceLabel.textContent = "--";
+        changeLabel.textContent = "No data in selected range";
+        changeLabel.style.color = "#a8afb8";
         return;
       }
 
-      const hiddenCount = selectedStocks.length - activeStocks.length;
-      symbolLabel.textContent = `${selectedStocks.length} Stocks`;
-      nameLabel.textContent = selectedStocks.map((stock) => stock.symbol).join(", ");
-      priceLabel.textContent = `${activeStocks.length} shown`;
-      changeLabel.textContent = hiddenCount === 0 ? "All visible" : `${hiddenCount} hidden`;
-      changeLabel.style.color = "#a8afb8";
+      const first = points.p[0];
+      const last = points.p[points.p.length - 1];
+      priceLabel.textContent = formatPrice(last);
+      changeLabel.textContent = `${formatChange(first, last)} from range start`;
+      changeLabel.style.color = stock.color;
     }
 
     function drawEmptyMessage(message, plot) {
@@ -1102,8 +1163,9 @@
 
     function draw() {
       geometry = resizeCanvas();
-      const activeStocks = visibleStocks();
-      setAccent(activeStocks[0]?.color || "#00c805");
+      const activeStock = selectedStocks.find((stock) => stock.symbol === activeSymbol) || selectedStocks[0];
+      if (activeStock) activeSymbol = activeStock.symbol;
+      setAccent(activeStock?.color || "#00c805");
 
       ctx.clearRect(0, 0, geometry.width, geometry.height);
       ctx.fillStyle = "#050608";
@@ -1113,7 +1175,7 @@
         left: 18,
         right: geometry.width - 18,
         top: 18,
-        bottom: geometry.height - 46
+        bottom: geometry.height - 72
       };
       plot.width = plot.right - plot.left;
       plot.height = plot.bottom - plot.top;
@@ -1122,13 +1184,6 @@
 
       if (!selectedStocks.length) {
         drawEmptyMessage("No stocks selected", plot);
-        rangeLabel.textContent = selectedRangeLabel();
-        pointLabel.textContent = pointCountText();
-        return;
-      }
-
-      if (!activeStocks.length) {
-        drawEmptyMessage("No stocks visible", plot);
         rangeLabel.textContent = selectedRangeLabel();
         pointLabel.textContent = pointCountText();
         return;
@@ -1152,10 +1207,13 @@
       if (!hover) pointLabel.textContent = pointCountText();
 
       drawGrid(plot, minY, maxY, minX, maxX);
-      for (const series of seriesList) {
+      const orderedSeries = [...seriesList].sort(
+        (a, b) => Number(a.isActive) - Number(b.isActive)
+      );
+      for (const series of orderedSeries) {
         drawLine(series, plot, minY, maxY, minX, maxX);
       }
-      drawHover(seriesList, plot, minY, maxY, minX, maxX);
+      drawHover(orderedSeries, plot, minY, maxY, minX, maxX);
     }
 
     searchInput.addEventListener("input", () => {
