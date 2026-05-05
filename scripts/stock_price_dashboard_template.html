@@ -190,15 +190,19 @@
     .stock-toggle-wrap {
       position: relative;
       display: inline-flex;
+      width: 204px;
     }
 
     .stock-toggle {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
+      width: 204px;
+      height: 38px;
+      min-height: 38px;
       border-color: var(--stock-color);
       color: #f7f8fa;
-      padding-right: 22px;
+      padding: 0 20px 0 12px;
     }
 
     .stock-toggle.is-active {
@@ -231,11 +235,32 @@
       background: transparent;
     }
 
-    .toggle-state {
-      color: #89919c;
+    .stock-label {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .stock-symbol {
+      flex: 0 0 auto;
+      font-weight: 800;
+    }
+
+    .stock-company {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #a8afb8;
       font-size: 12px;
-      font-weight: 780;
-      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .stock-toggle.is-muted .stock-symbol,
+    .stock-toggle.is-muted .stock-company {
+      font-weight: 500;
     }
 
     .remove-stock {
@@ -552,6 +577,14 @@
       return STOCK_DATA[symbol].name || symbol;
     }
 
+    function displayStockName(symbol) {
+      return stockName(symbol)
+        .replace(/\bCorporation\b\.?/gi, "Corp.")
+        .replace(/\bCorp\b\.?/gi, "Corp.")
+        .replace(/\bIncorporated\b\.?/gi, "Inc.")
+        .replace(/\bInc\b\.?/gi, "Inc.");
+    }
+
     function computeDataBounds() {
       let min = Infinity;
       let max = -Infinity;
@@ -701,11 +734,18 @@
     function searchRank(symbol, query) {
       const normalizedSymbol = symbol.toLowerCase();
       const normalizedName = stockName(symbol).toLowerCase();
+      const normalizedDisplayName = displayStockName(symbol).toLowerCase();
       if (normalizedSymbol === query) return 0;
       if (normalizedSymbol.startsWith(query)) return 1;
-      if (normalizedName.startsWith(query)) return 2;
+      if (
+        normalizedName.startsWith(query) ||
+        normalizedDisplayName.startsWith(query)
+      ) return 2;
       if (normalizedSymbol.includes(query)) return 3;
-      if (normalizedName.includes(query)) return 4;
+      if (
+        normalizedName.includes(query) ||
+        normalizedDisplayName.includes(query)
+      ) return 4;
       return 99;
     }
 
@@ -757,7 +797,7 @@
 
         const nameLabel = document.createElement("span");
         nameLabel.className = "result-name";
-        nameLabel.textContent = stockName(symbol);
+        nameLabel.textContent = displayStockName(symbol);
 
         button.append(symbolLabel, nameLabel);
         searchResults.appendChild(button);
@@ -846,21 +886,28 @@
         button.classList.toggle("is-active", isActive);
         button.classList.toggle("is-muted", !isActive);
         button.setAttribute("aria-pressed", isActive ? "true" : "false");
-        button.title = stockName(stock.symbol);
+        button.title = `${stock.symbol} - ${displayStockName(stock.symbol)}`;
         button.addEventListener("click", () => focusStock(stock.symbol));
 
         const swatch = document.createElement("span");
         swatch.className = "swatch";
         swatch.setAttribute("aria-hidden", "true");
 
+        const label = document.createElement("span");
+        label.className = "stock-label";
+
         const symbol = document.createElement("span");
+        symbol.className = "stock-symbol";
         symbol.textContent = stock.symbol;
 
-        const state = document.createElement("span");
-        state.className = "toggle-state";
-        state.textContent = isActive ? "Focus" : "Muted";
+        const company = document.createElement("span");
+        company.className = "stock-company";
+        company.textContent = displayStockName(stock.symbol) === stock.symbol
+          ? ""
+          : displayStockName(stock.symbol);
 
-        button.append(swatch, symbol, state);
+        label.append(symbol, company);
+        button.append(swatch, label);
 
         const removeButton = document.createElement("button");
         removeButton.type = "button";
@@ -905,6 +952,80 @@
         return lo - 1;
       }
       return lo;
+    }
+
+    function median(values) {
+      if (!values.length) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      const middle = Math.floor(sorted.length / 2);
+      if (sorted.length % 2 === 1) return sorted[middle];
+      return (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+
+    function buildTimeScale(seriesList) {
+      const uniqueTimes = new Set();
+      for (const series of seriesList) {
+        for (const time of series.points.t) {
+          uniqueTimes.add(time);
+        }
+      }
+
+      const times = [...uniqueTimes].sort((a, b) => a - b);
+      const xByTime = new Map();
+      if (!times.length) {
+        return {
+          times: [],
+          positions: [],
+          xByTime,
+          min: 0,
+          max: 1,
+          firstTime: null,
+          lastTime: null
+        };
+      }
+
+      const deltas = [];
+      for (let i = 1; i < times.length; i++) {
+        const delta = times[i] - times[i - 1];
+        if (delta > 0) deltas.push(delta);
+      }
+
+      const intradayDeltas = deltas.filter((delta) => delta <= 6 * 60 * 60 * 1000);
+      const typicalDelta = median(intradayDeltas) || median(deltas) || 60_000;
+      const gapThreshold = typicalDelta < 6 * 60 * 60 * 1000
+        ? Math.max(typicalDelta * 5, 5 * 60 * 1000)
+        : typicalDelta * 1.5;
+
+      const positions = [0];
+      xByTime.set(times[0], 0);
+      for (let i = 1; i < times.length; i++) {
+        const delta = times[i] - times[i - 1];
+        const compressedDelta = delta > gapThreshold ? typicalDelta : delta;
+        const position = positions[i - 1] + compressedDelta;
+        positions.push(position);
+        xByTime.set(times[i], position);
+      }
+
+      return {
+        times,
+        positions,
+        xByTime,
+        min: positions[0],
+        max: positions[positions.length - 1] || positions[0] + typicalDelta,
+        firstTime: times[0],
+        lastTime: times[times.length - 1]
+      };
+    }
+
+    function applyTimeScale(seriesList, timeScale) {
+      for (const series of seriesList) {
+        series.x = series.points.t.map((time) => timeScale.xByTime.get(time) ?? 0);
+      }
+    }
+
+    function timeAtPosition(timeScale, position) {
+      const index = nearestIndex(timeScale.positions, position);
+      return timeScale.times[Math.max(0, index)] ?? timeScale.firstTime;
     }
 
     function labelBox(text, x, y, align = "center") {
@@ -969,7 +1090,7 @@
       ctx.closePath();
     }
 
-    function drawGrid(plot, minY, maxY, minX, maxX) {
+    function drawGrid(plot, minY, maxY, timeScale) {
       ctx.save();
       ctx.lineWidth = 1;
       ctx.strokeStyle = "rgba(255,255,255,0.075)";
@@ -992,14 +1113,15 @@
       ctx.textBaseline = "top";
       for (let i = 0; i <= 4; i++) {
         const x = plot.left + (plot.width * i) / 4;
-        const value = minX + ((maxX - minX) * i) / 4;
-        ctx.fillText(compactDate.format(new Date(value)), x, plot.bottom + 10);
+        const position = timeScale.min + ((timeScale.max - timeScale.min) * i) / 4;
+        const time = timeAtPosition(timeScale, position);
+        ctx.fillText(compactDate.format(new Date(time)), x, plot.bottom + 10);
       }
       ctx.restore();
     }
 
     function drawLine(series, plot, minY, maxY, minX, maxX) {
-      const times = series.points.t;
+      const xValues = series.x;
       const values = series.values;
       const xScale = plot.width / Math.max(1, maxX - minX);
       const yScale = plot.height / Math.max(0.01, maxY - minY);
@@ -1011,8 +1133,8 @@
       ctx.lineCap = "round";
       ctx.strokeStyle = series.color;
       ctx.beginPath();
-      for (let i = 0; i < times.length; i++) {
-        const x = plot.left + (times[i] - minX) * xScale;
+      for (let i = 0; i < xValues.length; i++) {
+        const x = plot.left + (xValues[i] - minX) * xScale;
         const y = plot.bottom - (values[i] - minY) * yScale;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
@@ -1025,20 +1147,21 @@
       if (!hover || !geometry) return;
       if (hover.x < plot.left || hover.x > plot.right || hover.y < plot.top || hover.y > plot.bottom) return;
 
-      const targetTime = minX + ((hover.x - plot.left) / plot.width) * (maxX - minX);
+      const targetX = minX + ((hover.x - plot.left) / plot.width) * (maxX - minX);
       const items = [];
 
       for (const series of seriesList) {
+        const xValues = series.x;
         const times = series.points.t;
         const prices = series.points.p;
         const values = series.values;
-        const index = nearestIndex(times, targetTime);
+        const index = nearestIndex(xValues, targetX);
         if (index < 0) continue;
 
         const time = times[index];
         const price = prices[index];
         const value = values[index];
-        const x = plot.left + ((time - minX) / Math.max(1, maxX - minX)) * plot.width;
+        const x = plot.left + ((xValues[index] - minX) / Math.max(1, maxX - minX)) * plot.width;
         const y = plot.bottom - ((value - minY) / Math.max(0.01, maxY - minY)) * plot.height;
         items.push({
           symbol: series.symbol,
@@ -1107,12 +1230,12 @@
       let maxY = -Infinity;
 
       for (const series of seriesList) {
-        const times = series.points.t;
+        const xValues = series.x;
         const values = series.values;
-        if (!times.length) continue;
+        if (!xValues.length) continue;
 
-        minX = Math.min(minX, times[0]);
-        maxX = Math.max(maxX, times[times.length - 1]);
+        minX = Math.min(minX, xValues[0]);
+        maxX = Math.max(maxX, xValues[xValues.length - 1]);
 
         for (const value of values) {
           minY = Math.min(minY, value);
@@ -1137,7 +1260,7 @@
       activeSymbol = stock.symbol;
       const points = visiblePointsFor(STOCK_DATA[stock.symbol]);
       symbolLabel.textContent = stock.symbol;
-      nameLabel.textContent = stockName(stock.symbol);
+      nameLabel.textContent = displayStockName(stock.symbol);
 
       if (!points.t.length) {
         priceLabel.textContent = "--";
@@ -1197,16 +1320,18 @@
         return;
       }
 
+      const timeScale = buildTimeScale(seriesList);
+      applyTimeScale(seriesList, timeScale);
       const bounds = seriesBounds(seriesList);
       let { minX, maxX, minY, maxY } = bounds;
       const yPad = Math.max((maxY - minY) * 0.08, Math.abs(maxY) * 0.005, 0.5);
       minY -= yPad;
       maxY += yPad;
 
-      rangeLabel.textContent = `${compactDate.format(new Date(minX))} - ${compactDate.format(new Date(maxX))}`;
+      rangeLabel.textContent = `${compactDate.format(new Date(timeScale.firstTime))} - ${compactDate.format(new Date(timeScale.lastTime))}`;
       if (!hover) pointLabel.textContent = pointCountText();
 
-      drawGrid(plot, minY, maxY, minX, maxX);
+      drawGrid(plot, minY, maxY, timeScale);
       const orderedSeries = [...seriesList].sort(
         (a, b) => Number(a.isActive) - Number(b.isActive)
       );
