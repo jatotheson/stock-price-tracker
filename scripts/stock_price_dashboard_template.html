@@ -475,6 +475,7 @@
       "#577590",
       "#43aa8b"
     ];
+    const defaultSelectedSymbols = ["AAPL", "NVDA"];
 
     let selectedStocks = [];
     let nextColorIndex = 0;
@@ -757,6 +758,17 @@
       const hue = Math.round((nextColorIndex * 137.508) % 360);
       nextColorIndex += 1;
       return `hsl(${hue} 78% 60%)`;
+    }
+
+    function initDefaultSelectedStocks() {
+      for (const symbol of defaultSelectedSymbols) {
+        if (!STOCK_DATA[symbol] || isStockSelected(symbol)) continue;
+        selectedStocks.push({
+          symbol,
+          color: nextStockColor(),
+          visible: true
+        });
+      }
     }
 
     function addStock(symbol) {
@@ -1195,6 +1207,7 @@
     resetRangeButton.addEventListener("click", resetDateRange);
     window.addEventListener("resize", draw);
     initRangeControls();
+    initDefaultSelectedStocks();
     renderSelectedButtons();
     draw();
   </script>
