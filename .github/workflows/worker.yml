@@ -5,6 +5,9 @@ on:
         branches: [ main ]
         paths:
             - 'app/worker/**'
+            - 'config/**'
+            - '.dockerignore'
+            - '.github/workflows/worker.yml'
     workflow_dispatch: {}
 
 jobs:
@@ -41,9 +44,9 @@ jobs:
               env:
                   ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
               run: |
-                  cd app/worker
                   docker buildx build \
                       --platform linux/arm64 \
+                      -f app/worker/Dockerfile \
                       -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
                       . \
                       --push

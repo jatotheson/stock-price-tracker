@@ -3,13 +3,22 @@
 
 Side project to download daily 1-minute stock price history after market close.
 
+## tracked stocks
+
+The tracked stock universe is defined in `config/tracked_stocks.csv`. Add,
+disable, or edit symbols there; the worker reads that file by default locally
+and in ECS.
+
 ## commands
 
 ### run daily history locally
 
 S3_BUCKET=stock-tracker-data-dev \
-STOCK_LIST=AAPL,NVDA,TSLA,NFLX,META,MSFT,GOOG,AMZN,ORCL,AVGO \
 venv/bin/python -B app/worker/daily_history.py
+
+For a one-off local run that does not change the tracked stock config:
+
+venv/bin/python -B app/worker/daily_history.py --dry-run --symbols AAPL,MSFT
 
 ### download daily history parquet files from s3
 

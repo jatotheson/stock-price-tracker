@@ -246,5 +246,6 @@ downloaded_stock_data/
 *.html
 !scripts/stock_price_dashboard_template.html
 *.csv
+!config/tracked_stocks.csv
 /tmp/*
 .DS_Store

@@ -10,6 +10,8 @@ import boto3
 import pandas as pd
 import yfinance as yf
 
+from stock_universe import load_tracked_symbols, resolve_stock_list_path
+
 
 EASTERN_TZ = ZoneInfo("America/New_York")
 DEFAULT_INTERVAL = "1m"
@@ -40,9 +42,11 @@ def publish_notification(subject: str, details: dict[str, Any]) -> None:
         log(f"[WARN] Failed to publish SNS notification: {exc}")
 
 
-def stock_list_from_env() -> list[str]:
-    stock_list = os.environ.get("STOCK_LIST", "")
-    return [symbol.strip() for symbol in stock_list.split(",") if symbol.strip()]
+def summarize_symbols(symbols: list[str], limit: int = 20) -> str:
+    preview = ",".join(symbols[:limit])
+    if len(symbols) <= limit:
+        return preview
+    return f"{preview},...(+{len(symbols) - limit} more)"
 
 
 def parse_args() -> Namespace:
@@ -54,8 +58,18 @@ def parse_args() -> Namespace:
     )
     parser.add_argument(
         "--symbols",
-        default=",".join(stock_list_from_env()),
-        help="Comma-separated symbols. Defaults to STOCK_LIST.",
+        help=(
+            "Comma-separated symbols. Overrides --stock-list-file for one-off "
+            "runs; normal app runs use the tracked stock config file."
+        ),
+    )
+    parser.add_argument(
+        "--stock-list-file",
+        default=os.environ.get("STOCK_LIST_FILE"),
+        help=(
+            "CSV file containing tracked stocks. Defaults to "
+            "config/tracked_stocks.csv."
+        ),
     )
     parser.add_argument(
         "--bucket",
@@ -100,6 +114,17 @@ def parse_symbols(value: str) -> list[str]:
     return symbols
 
 
+def load_symbols(
+    symbols_override: str | None,
+    stock_list_file: str | None,
+) -> tuple[list[str], str]:
+    if symbols_override:
+        return parse_symbols(symbols_override), "--symbols"
+
+    stock_list_path = resolve_stock_list_path(stock_list_file)
+    return load_tracked_symbols(stock_list_path), str(stock_list_path)
+
+
 def market_date_range(value: str) -> tuple[date, date]:
     start = date.fromisoformat(value)
     return start, start + timedelta(days=1)
@@ -115,7 +140,8 @@ def download_history(
     ticker_arg = " ".join(symbols)
     log(
         "Downloading yfinance history: "
-        f"symbols={ticker_arg}, interval={interval}, "
+        f"symbol_count={len(symbols)}, symbols={summarize_symbols(symbols)}, "
+        f"interval={interval}, "
         f"period={period if target_date is None else 'date-range'}, "
         f"include_prepost={include_prepost}"
     )
@@ -275,11 +301,13 @@ def main() -> int:
         if not args.bucket and not args.dry_run:
             raise ValueError("S3 bucket is required unless --dry-run is set")
 
-        symbols = parse_symbols(args.symbols)
+        symbols, symbol_source = load_symbols(args.symbols, args.stock_list_file)
         publish_notification(
             "Stock daily history started",
             {
-                "symbols": ",".join(symbols),
+                "symbol_source": symbol_source,
+                "symbol_count": len(symbols),
+                "symbols": summarize_symbols(symbols),
                 "interval": args.interval,
                 "period": args.period if args.date is None else "date-range",
                 "target_date": args.date or "",
@@ -302,7 +330,9 @@ def main() -> int:
             publish_notification(
                 "Stock daily history finished with no data",
                 {
-                    "symbols": ",".join(symbols),
+                    "symbol_source": symbol_source,
+                    "symbol_count": len(symbols),
+                    "symbols": summarize_symbols(symbols),
                     "interval": args.interval,
                     "bucket": args.bucket or "dry-run",
                 },
@@ -314,9 +344,11 @@ def main() -> int:
         publish_notification(
             "Stock daily history finished",
             {
-                "symbols": ",".join(symbols),
+                "symbol_source": symbol_source,
+                "symbol_count": len(symbols),
+                "symbols": summarize_symbols(symbols),
                 "rows": len(history),
-                "symbol_count": history["symbol"].nunique(),
+                "returned_symbol_count": history["symbol"].nunique(),
                 "bucket": bucket,
                 "key": key,
             },
@@ -328,7 +360,9 @@ def main() -> int:
             "Stock daily history failed",
             {
                 "error": str(exc),
-                "symbols": args.symbols,
+                "symbol_source": args.symbols
+                or args.stock_list_file
+                or "config/tracked_stocks.csv",
                 "bucket": args.bucket or "",
                 "interval": args.interval,
             },

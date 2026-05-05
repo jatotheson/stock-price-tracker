@@ -1,0 +1,6 @@
+**
+!app/
+!app/worker/
+!app/worker/**
+!config/
+!config/**

@@ -29,19 +29,3 @@ variable "notify_phone_number" {
     error_message = "notify_phone_number must be empty or an E.164 phone number like +15551234567."
   }
 }
-
-variable "stock_symbols" {
-  type = list(string)
-  default = [
-    "AAPL",
-    "NVDA",
-    "TSLA",
-    "NFLX",
-    "META",
-    "MSFT",
-    "GOOG",
-    "AMZN",
-    "ORCL",
-    "AVGO"
-  ]
-}

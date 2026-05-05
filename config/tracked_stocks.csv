@@ -1,0 +1,11 @@
+symbol,name,exchange,enabled
+AAPL,Apple Inc.,NASDAQ,true
+NVDA,NVIDIA Corporation,NASDAQ,true
+TSLA,Tesla Inc.,NASDAQ,true
+NFLX,Netflix Inc.,NASDAQ,true
+META,Meta Platforms Inc.,NASDAQ,true
+MSFT,Microsoft Corporation,NASDAQ,true
+GOOG,Alphabet Inc. Class C,NASDAQ,true
+AMZN,Amazon.com Inc.,NASDAQ,true
+ORCL,Oracle Corporation,NYSE,true
+AVGO,Broadcom Inc.,NASDAQ,true

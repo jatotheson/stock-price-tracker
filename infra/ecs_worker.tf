@@ -179,8 +179,8 @@ resource "aws_ecs_task_definition" "worker" {
           value = aws_s3_bucket.stock_data.bucket
         },
         {
-          name  = "STOCK_LIST"
-          value = join(",", var.stock_symbols)
+          name  = "STOCK_LIST_FILE"
+          value = "/app/config/tracked_stocks.csv"
         },
         {
           name  = "NOTIFY_TOPIC_ARN"
