@@ -176,6 +176,17 @@ def read_stock_points(
             "count": len(sorted_points),
         }
 
+    for symbol, name in sorted(stock_names.items()):
+        stock_data.setdefault(
+            symbol,
+            {
+                "name": name or symbol,
+                "t": [],
+                "p": [],
+                "count": 0,
+            },
+        )
+
     return stock_data
 
 
